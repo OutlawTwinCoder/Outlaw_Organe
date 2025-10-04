@@ -80,6 +80,7 @@ RegisterNetEvent('outlaw_organ:missionAssigned', function(targetCoords)
 
     local netId = NetworkGetNetworkIdFromEntity(ped)
     Entity(ped).state:set('organOwner', GetPlayerServerId(PlayerId()), true)
+    addTargetOptionToEntity(ped)
 
     -- blip/route
     if DoesBlipExist(activeTarget.blip) then RemoveBlip(activeTarget.blip) end
@@ -157,6 +158,15 @@ AddEventHandler('entityCreated', function(entity)
             addTargetOptionToEntity(entity)
         end
     end
+end)
+
+AddStateBagChangeHandler('organOwner', nil, function(bagName, key, value)
+    if value ~= GetPlayerServerId(PlayerId()) then return end
+
+    local entity = GetEntityFromStateBagName(bagName)
+    if not entity or not DoesEntityExist(entity) or not IsEntityAPed(entity) then return end
+
+    addTargetOptionToEntity(entity)
 end)
 
 -- Spawn des PNJ au démarrage
