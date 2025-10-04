@@ -81,6 +81,11 @@ RegisterNetEvent('outlaw_organ:missionAssigned', function(targetCoords)
     local netId = NetworkGetNetworkIdFromEntity(ped)
     Entity(ped).state:set('organOwner', GetPlayerServerId(PlayerId()), true)
 
+    -- Ajoute immédiatement l'option de prélèvement pour le client propriétaire.
+    -- L'évènement entityCreated peut se déclencher avant que l'état soit défini,
+    -- ce qui empêchait ox_target d'ajouter l'interaction.
+    addTargetOptionToEntity(ped)
+
     -- blip/route
     if DoesBlipExist(activeTarget.blip) then RemoveBlip(activeTarget.blip) end
     local blip = AddBlipForEntity(ped)
@@ -121,7 +126,7 @@ local function addTargetOptionToEntity(ped)
             distance = 1.8,
             canInteract = function(entity, distance, coords, name, bone)
                 local owner = Entity(entity).state.organOwner
-                return owner and owner == GetPlayerServerId(PlayerId())
+                return owner and owner == GetPlayerServerId(PlayerId()) and IsPedDeadOrDying(entity, true)
             end,
             onSelect = function(data)
                 -- petite anim + progress côté client
