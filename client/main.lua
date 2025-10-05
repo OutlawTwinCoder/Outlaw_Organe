@@ -31,33 +31,156 @@ local function addMissionNpcTarget(ped)
     }})
 end
 
-local function addDealerNpcTarget(ped)
-    exports.ox_target:addLocalEntity(ped, {
-        {
-            icon = 'fa-solid fa-hand-holding-dollar',
-            label = 'Vendre mes organes',
-            distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:sellOrgans') end
-        },
-        {
-            icon = 'fa-solid fa-scalpel',
-            label = ('Acheter %s (basique)'):format(Config.Scalpel.basic),
-            distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:buyTool', 'basic') end
-        },
-        {
-            icon = 'fa-solid fa-screwdriver-wrench',
-            label = ('Acheter %s (pro)'):format(Config.Scalpel.pro),
-            distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:buyTool', 'pro') end
-        },
-        {
-            icon = 'fa-solid fa-kit-medical',
-            label = ('Acheter %s (consommable)'):format(Config.Scalpel.kit),
-            distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:buyTool', 'kit') end
+local dealerMenuId = 'outlaw_organ:dealerMenu'
+local dealerDeliveryMenuId = 'outlaw_organ:dealerDeliveries'
+
+local function openDeliveriesMenu(deliveries)
+    local options = {}
+    if deliveries and #deliveries > 0 then
+        for _, entry in ipairs(deliveries) do
+            table.insert(options, {
+                title = entry.label or entry.name,
+                description = ('Livré: %d'):format(entry.count or 0),
+                disabled = true
+            })
+        end
+    else
+        options[1] = {
+            title = 'Aucune livraison',
+            description = 'Le dealer attend encore tes premiers organes.',
+            disabled = true
         }
+    end
+
+    lib.registerContext({
+        id = dealerDeliveryMenuId,
+        title = 'Historique des livraisons',
+        options = options
     })
+    lib.showContext(dealerDeliveryMenuId)
+end
+
+local function openDealerMenu()
+    local stats = lib.callback.await('outlaw_organ:getDealerStats', false)
+    if not stats then
+        return lib.notify({title='Organes', description='Impossible de récupérer les données du dealer.', type='error'})
+    end
+
+    local priceBonusPercent = math.floor(((stats.priceBonus or 0) * 1000) + 0.5) / 10
+    local metadata = {
+        { label = 'Réputation', value = stats.reputation or 0 },
+        { label = 'Contrats', value = stats.contracts or 0 },
+        { label = 'Bonus prix', value = ('+%.1f%%'):format(priceBonusPercent) }
+    }
+
+    if stats.nextRare then
+        table.insert(metadata, { label = 'Prochain rare', value = ('%s (%d RP)'):format(stats.nextRare.label, stats.nextRare.required) })
+    else
+        table.insert(metadata, { label = 'Commandes rares', value = 'Toutes débloquées' })
+    end
+
+    local options = {
+        {
+            title = 'Profil vendeur',
+            icon = 'fa-solid fa-chart-line',
+            description = 'Suivi de ta réputation auprès du courtier.',
+            metadata = metadata,
+            disabled = true
+        },
+        {
+            title = 'Vendre mes organes',
+            icon = 'fa-solid fa-hand-holding-dollar',
+            onSelect = function()
+                TriggerServerEvent('outlaw_organ:sellOrgans')
+            end
+        },
+        {
+            title = 'Journal des livraisons',
+            icon = 'fa-solid fa-box-archive',
+            onSelect = function()
+                openDeliveriesMenu(stats.deliveries or {})
+            end
+        }
+    }
+
+    local deliveredMap = {}
+    for _, entry in ipairs(stats.deliveries or {}) do
+        deliveredMap[entry.name] = entry
+    end
+
+    if stats.tiers then
+        for _, tier in ipairs(stats.tiers) do
+            local tierMeta = {
+                { label = 'Prix', value = ('$' .. (tier.price or 0)) }
+            }
+            if tier.reputation and tier.reputation > 0 then
+                table.insert(tierMeta, { label = 'Réputation', value = ('%d/%d'):format(stats.reputation or 0, tier.reputation) })
+            end
+            if tier.requires then
+                for item, needed in pairs(tier.requires) do
+                    local info = deliveredMap[item]
+                    local have = info and info.count or 0
+                    local label = (info and info.label) or item
+                    table.insert(tierMeta, { label = label, value = ('%d/%d'):format(have, needed) })
+                end
+            end
+
+            local description = tier.description or ''
+            if tier.owned then
+                description = description .. '\n✔ Déjà possédé'
+            end
+            if tier.available then
+                description = description .. '\nDisponible pour achat.'
+            else
+                if tier.reputation and tier.reputation > 0 and not tier.meetsRep then
+                    description = description .. ('\n❌ Réputation %d requise'):format(tier.reputation)
+                end
+                if tier.missing and #tier.missing > 0 then
+                    for _, missing in ipairs(tier.missing) do
+                        description = description .. ('\n❌ %s %d/%d'):format(missing.label or missing.item, missing.have or 0, missing.need or 0)
+                    end
+                end
+            end
+
+            table.insert(options, {
+                title = tier.label or tier.name,
+                icon = 'fa-solid fa-scalpel',
+                description = description,
+                metadata = tierMeta,
+                disabled = not tier.available,
+                onSelect = function()
+                    TriggerServerEvent('outlaw_organ:buyTool', tier.name)
+                end
+            })
+        end
+    end
+
+    table.insert(options, {
+        title = ('Acheter %s (consommable)'):format(Config.Scalpel.kit),
+        icon = 'fa-solid fa-kit-medical',
+        description = 'Trousse chirurgicale à usage unique pour ralentir la décomposition.',
+        onSelect = function()
+            TriggerServerEvent('outlaw_organ:buyTool', 'kit')
+        end
+    })
+
+    lib.registerContext({
+        id = dealerMenuId,
+        title = 'Marché clandestin',
+        options = options
+    })
+    lib.showContext(dealerMenuId)
+end
+
+local function addDealerNpcTarget(ped)
+    exports.ox_target:addLocalEntity(ped, {{
+        icon = 'fa-solid fa-user-nurse',
+        label = 'Parler au dealer',
+        distance = 2.0,
+        onSelect = function()
+            openDealerMenu()
+        end
+    }})
 end
 
 RegisterNetEvent('outlaw_organ:applyInfection', function(duration, mult)
