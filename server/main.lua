@@ -425,6 +425,24 @@ local function buildDealerSnapshot(src, stats)
         }
     end
 
+    local unlockedVariants = {}
+    if stats and stats.upgrades then
+        for key, ts in pairs(stats.upgrades) do
+            if ts then
+                unlockedVariants[key] = true
+            end
+        end
+    end
+
+    local upgradeTargets = {}
+    if Config.Scalpel and Config.Scalpel.upgrades then
+        for _, upgrade in pairs(Config.Scalpel.upgrades) do
+            if upgrade.to then
+                upgradeTargets[upgrade.to] = true
+            end
+        end
+    end
+
     local upgrades = {}
     for id, upgrade in pairs((Config.Scalpel and Config.Scalpel.upgrades) or {}) do
         local variants = Config.Scalpel.variants or {}
@@ -438,31 +456,41 @@ local function buildDealerSnapshot(src, stats)
                 reputation = upgrade.reputation or 0,
                 deliveries = upgrade.deliveries or {},
                 hasBase = hasItem(src, fromVariant.item),
-                targetOwned = toVariant.item and hasItem(src, toVariant.item)
+                targetOwned = toVariant.item and hasItem(src, toVariant.item),
+                unlocked = unlockedVariants[upgrade.to or toVariant.item] or false
             }
             entry.reasons = {}
-            if entry.targetOwned then
-                entry.status = 'owned'
+            if entry.unlocked then
+                entry.status = entry.targetOwned and 'owned' or 'unlocked'
             else
-                if reputation < entry.reputation then
-                    table.insert(entry.reasons, ('Réputation %d/%d'):format(reputation, entry.reputation))
-                end
-                if upgrade.deliveries then
-                    for organ, count in pairs(upgrade.deliveries) do
-                        local delivered = stats and stats.deliveries and (stats.deliveries[organ] or 0) or 0
-                        if delivered < count then
-                            table.insert(entry.reasons, ('%s %d/%d'):format((Config.ItemDetails[organ] and Config.ItemDetails[organ].label) or organ, delivered, count))
+                if entry.targetOwned then
+                    entry.status = 'owned'
+                else
+                    if reputation < entry.reputation then
+                        table.insert(entry.reasons, ('Réputation %d/%d'):format(reputation, entry.reputation))
+                    end
+                    if upgrade.deliveries then
+                        for organ, count in pairs(upgrade.deliveries) do
+                            local delivered = stats and stats.deliveries and (stats.deliveries[organ] or 0) or 0
+                            if delivered < count then
+                                table.insert(entry.reasons, ('%s %d/%d'):format((Config.ItemDetails[organ] and Config.ItemDetails[organ].label) or organ, delivered, count))
+                            end
                         end
                     end
+                    if not entry.hasBase then
+                        table.insert(entry.reasons, ('Posséder: %s'):format(fromVariant.label or fromVariant.item))
+                    end
+                    if #entry.reasons == 0 then
+                        entry.status = 'ready'
+                    else
+                        entry.status = 'locked'
+                    end
                 end
-                if not entry.hasBase then
-                    table.insert(entry.reasons, ('Posséder: %s'):format(fromVariant.label or fromVariant.item))
-                end
-                if #entry.reasons == 0 then
-                    entry.status = 'ready'
-                else
-                    entry.status = 'locked'
-                end
+            end
+            if entry.unlocked then
+                entry.reasons = { 'Scalpel disponible dans la boutique.' }
+            elseif entry.status == 'owned' then
+                entry.reasons = { ('Possède: %s'):format(toVariant.label or toVariant.item) }
             end
             table.insert(upgrades, entry)
         end
@@ -471,6 +499,8 @@ local function buildDealerSnapshot(src, stats)
         if a.status == b.status then return (a.reputation or 0) < (b.reputation or 0) end
         if a.status == 'ready' then return true end
         if b.status == 'ready' then return false end
+        if a.status == 'unlocked' and b.status ~= 'ready' then return true end
+        if b.status == 'unlocked' and a.status ~= 'ready' then return false end
         if a.status == 'owned' then return false end
         if b.status == 'owned' then return true end
         return (a.reputation or 0) < (b.reputation or 0)
@@ -482,6 +512,18 @@ local function buildDealerSnapshot(src, stats)
         local variants = Config.Scalpel.variants or {}
         for key, variant in pairs(variants) do
             if variant.buyPrice and variant.buyPrice > 0 then
+                local needsUpgrade = upgradeTargets[key] or false
+                local unlocked = not needsUpgrade or unlockedVariants[key]
+                local locked = false
+                local lockReason
+                if variant.reputation and variant.reputation > 0 and reputation < variant.reputation then
+                    locked = true
+                    lockReason = ('Réputation %d RP requise'):format(variant.reputation)
+                end
+                if needsUpgrade and not unlocked then
+                    locked = true
+                    lockReason = lockReason and (lockReason .. ' • Amélioration requise') or 'Débloquer via les améliorations'
+                end
                 local entry = {
                     id = key,
                     label = variant.label or variant.item or key,
@@ -489,8 +531,11 @@ local function buildDealerSnapshot(src, stats)
                     reputation = variant.reputation or 0,
                     bonusQuality = variant.bonusQuality or 0,
                     secondChance = variant.secondHarvestChance or 0,
-                    locked = variant.reputation and reputation < variant.reputation,
-                    owned = variant.item and hasItem(src, variant.item) or false
+                    locked = locked,
+                    owned = variant.item and hasItem(src, variant.item) or false,
+                    requiresUnlock = needsUpgrade,
+                    unlocked = unlocked,
+                    lockReason = lockReason
                 }
                 table.insert(variantOffers, entry)
             end
@@ -571,13 +616,14 @@ RegisterNetEvent('outlaw_organ:upgradeScalpel', function(id)
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Tu dois posséder %s.'):format(fromVariant.label or fromVariant.item), type='error'})
     end
 
-    if hasItem(src, toVariant.item) then
-        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Tu possèdes déjà cette amélioration.', type='error'})
-    end
-
     local stats, identifier = getStats(src)
     if not stats then
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Statistiques indisponibles.', type='error'})
+    end
+
+    stats.upgrades = stats.upgrades or {}
+    if stats.upgrades[upgrade.to] then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Amélioration déjà débloquée.', type='error'})
     end
 
     local reputation = stats.reputation or 0
@@ -604,26 +650,12 @@ RegisterNetEvent('outlaw_organ:upgradeScalpel', function(id)
         xPlayer.removeMoney(price)
     end
 
-    local removed = exports.ox_inventory:RemoveItem(src, fromVariant.item, 1)
-    if not removed then
-        if price > 0 then xPlayer.addMoney(price) end
-        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Impossible de retirer ton ancien scalpel.', type='error'})
-    end
-
-    local added = exports.ox_inventory:AddItem(src, toVariant.item, 1)
-    if not added then
-        exports.ox_inventory:AddItem(src, fromVariant.item, 1)
-        if price > 0 then xPlayer.addMoney(price) end
-        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Inventaire plein pour le nouveau scalpel.', type='error'})
-    end
-
-    stats.upgrades = stats.upgrades or {}
     stats.upgrades[upgrade.to] = now()
     saveStats(identifier)
     sendDealerSnapshot(src, nil, stats)
 
-    TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Amélioration obtenue: %s'):format(toVariant.label or toVariant.item), type='success'})
-    sendWebhook('Scalpel amélioré', ('**Joueur:** %s\n**Amélioration:** %s -> %s'):format(GetPlayerName(src), fromVariant.item, toVariant.item), 5793266)
+    TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Nouvelle lame disponible: %s'):format(toVariant.label or toVariant.item), type='success'})
+    sendWebhook('Scalpel débloqué', ('**Joueur:** %s\n**Déblocage:** %s -> %s'):format(GetPlayerName(src), fromVariant.item,toVariant.item), 5793266)
 end)
 
 RegisterNetEvent('outlaw_organ:sellOrgans', function()
@@ -725,20 +757,28 @@ RegisterNetEvent('outlaw_organ:buyTool', function(kind)
         local variants = Config.Scalpel and Config.Scalpel.variants or {}
         local variant = variants and variants[kind] or nil
         if variant then
-            if variant.buyPrice and variant.buyPrice > 0 then
-                local stats = select(1, getStats(src))
-                if variant.reputation and variant.reputation > 0 then
-                    local rep = stats and (stats.reputation or 0) or 0
-                    if rep < variant.reputation then
-                        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Réputation insuffisante pour cet achat.', type='error'})
+            local stats = select(1, getStats(src)) or {}
+            local rep = stats.reputation or 0
+            if variant.reputation and variant.reputation > 0 and rep < variant.reputation then
+                return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Réputation insuffisante pour cet achat.', type='error'})
+            end
+
+            local needsUnlock = false
+            if Config.Scalpel and Config.Scalpel.upgrades then
+                for _, upgrade in pairs(Config.Scalpel.upgrades) do
+                    if upgrade.to == kind then
+                        needsUnlock = true
+                        break
                     end
                 end
-                item = variant.item
-                price = variant.buyPrice
-                label = variant.label or variant.item
-            else
-                return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Cet outil doit être débloqué via amélioration.', type='error'})
             end
+            if needsUnlock and not (stats.upgrades and stats.upgrades[kind]) then
+                return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Débloquez cette lame via les améliorations.', type='error'})
+            end
+
+            item = variant.item
+            price = math.max(variant.buyPrice or 0, 0)
+            label = variant.label or variant.item
         end
     end
 

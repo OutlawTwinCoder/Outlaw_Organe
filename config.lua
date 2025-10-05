@@ -66,14 +66,14 @@ Config.Scalpel = {
     variants = {
         basic = { item = 'scalpel',      label = 'Scalpel (basique)', bonusQuality = 0,  buyPrice = 250,  reputation = 0,   secondHarvestChance = 0.0 },
         pro   = { item = 'scalpel_pro',  label = 'Scalpel (pro)',     bonusQuality = 10, buyPrice = 1500, reputation = 120, secondHarvestChance = 0.2 },
-        elite = { item = 'scalpel_elite',label = 'Scalpel (élite)',   bonusQuality = 18, buyPrice = 0,    reputation = 380, secondHarvestChance = 0.35 },
+        elite = { item = 'scalpel_elite',label = 'Scalpel (élite)',   bonusQuality = 18, buyPrice = 5500, reputation = 380, secondHarvestChance = 0.35 },
     },
     upgrades = {
         elite = {
             id = 'elite',
             from = 'pro',
             to = 'elite',
-            price = 5500,
+            price = 0,
             reputation = 380,
             deliveries = { rein = 20, yeux = 12, coeur = 3 },
         }

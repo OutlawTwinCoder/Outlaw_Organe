@@ -2,6 +2,7 @@ return {
     -- OUTLAW ORGAN TOOLS
     ['scalpel'] = { label='Scalpel', weight=50, stack=true, close=true },
     ['scalpel_pro'] = { label='Scalpel Pro', weight=50, stack=true, close=true, description='+10% qualité, 2e prélèvement possible' },
+    ['scalpel_elite'] = { label='Scalpel Élite', weight=50, stack=true, close=true, description='+18% qualité, chance double améliorée' },
     ['surgery_kit'] = { label='Kit chirurgical', weight=200, stack=true, close=true, description='+TTL (consommable)' },
     ['cooler'] = { label='Glacière', weight=600, stack=false, close=true },
     ['icepack'] = { label='Pack de glace', weight=100, stack=true, close=true },

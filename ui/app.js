@@ -210,20 +210,30 @@ function renderDeliveries() {
     deliveries.forEach((delivery) => {
         const unlock = Number(delivery.unlock || 0);
         const unlocked = reputation >= unlock;
-        const card = document.createElement('article');
-        card.className = `list-card${unlocked ? '' : ' locked'}`;
         const basePrice = Number(delivery.price || 0);
-        const adjustedPrice = basePrice * multiplier;
-        const adjustedLine = multiplier !== 1
-            ? `<div class="list-meta accent">Prix ${multiplier > 1 ? 'bonus' : 'réduit'} (${multiplier.toFixed(2)}x): ${formatCurrency(adjustedPrice)}</div>`
+        const adjustedPrice = Math.round(basePrice * multiplier);
+        const card = document.createElement('article');
+        card.className = `list-card list-card--compact${unlocked ? '' : ' locked'}`;
+
+        const headerPrice = formatCurrency(adjustedPrice);
+        const baseLine = `<div class="list-meta">Base: ${formatCurrency(basePrice)}</div>`;
+        const bonusLabel = multiplier > 1 ? 'Bonus' : multiplier < 1 ? 'Réduction' : 'Multiplicateur';
+        const bonusLine = multiplier !== 1
+            ? `<div class="list-meta notice">${bonusLabel} x${multiplier.toFixed(2)}</div>`
             : '';
+        const deliveriesLine = `<div class="list-meta">Livraisons: <strong>${formatNumber(delivery.count || 0)}</strong></div>`;
+        const tagText = unlock > 0 ? `${formatNumber(unlock)} RP requis` : 'Disponible';
+
         card.innerHTML = `
-            <h3 class="list-title">${delivery.label || delivery.name}</h3>
-            <div class="list-meta">Livraisons totales: <strong>${formatNumber(delivery.count || 0)}</strong></div>
-            <div class="list-meta">Prix de base: ${formatCurrency(basePrice)}</div>
-            ${adjustedLine}
+            <div class="list-header">
+                <h3 class="list-title">${delivery.label || delivery.name}</h3>
+                <span class="list-price">${headerPrice}</span>
+            </div>
+            ${baseLine}
+            ${bonusLine}
+            ${deliveriesLine}
             <div class="list-footer">
-                <span class="tag${unlocked ? ' accent' : ''}">${unlock > 0 ? `${formatNumber(unlock)} RP requis` : 'Disponible'}</span>
+                <span class="tag${unlocked ? ' accent' : ''}">${tagText}</span>
             </div>
         `;
         deliveriesEl.appendChild(card);
@@ -243,7 +253,7 @@ function renderRare() {
     rare.forEach((entry) => {
         const unlocked = Boolean(entry.unlocked);
         const card = document.createElement('article');
-        card.className = `list-card${unlocked ? '' : ' locked'}`;
+        card.className = `list-card list-card--compact${unlocked ? '' : ' locked'}`;
         card.innerHTML = `
             <h3 class="list-title">${entry.label || entry.name}</h3>
             <div class="list-meta">Réputation requise: ${formatNumber(entry.required || 0)} RP</div>
@@ -275,19 +285,45 @@ function renderUpgrades() {
             ? requirements.map((reason) => `<span>${reason}</span>`).join('')
             : '<span>Toutes les conditions sont réunies.</span>';
 
+        let badgeText = 'Verrouillé';
+        let badgeAccent = false;
+        let buttonLabel = 'Indisponible';
+        let buttonClass = 'secondary-button';
+        let buttonDisabled = true;
+
+        if (status === 'ready') {
+            badgeText = 'Disponible';
+            badgeAccent = true;
+            buttonLabel = price > 0 ? `Débloquer (${formatCurrency(price)})` : 'Débloquer';
+            buttonClass = 'primary-button';
+            buttonDisabled = false;
+        } else if (status === 'unlocked') {
+            badgeText = 'Débloqué';
+            badgeAccent = true;
+            buttonLabel = 'Déjà débloqué';
+        } else if (status === 'owned') {
+            badgeText = 'Possédé';
+            buttonLabel = 'Possédé';
+        }
+
+        const repLine = upgrade.reputation > 0
+            ? `<div class="list-meta">Réputation requise: ${formatNumber(upgrade.reputation)} RP</div>`
+            : '';
+        const priceLine = price > 0 ? `<div class="list-meta">Coût de déblocage: ${formatCurrency(price)}</div>` : '';
+
         card.innerHTML = `
             <h3 class="list-title">${upgrade.label}</h3>
-            <div class="list-meta">Prix: ${formatCurrency(price)}</div>
-            <div class="list-meta">Réputation requise: ${formatNumber(upgrade.reputation || 0)} RP</div>
+            ${priceLine}
+            ${repLine}
             <div class="requirements">${requirementsHtml}</div>
             <div class="list-footer">
-                <span class="tag${status === 'ready' ? ' accent' : ''}">${status === 'ready' ? 'Disponible' : status === 'owned' ? 'Obtenu' : 'Verrouillé'}</span>
-                <button class="${status === 'ready' ? 'primary-button' : 'secondary-button'}" type="button" data-upgrade="${upgrade.id}" ${status === 'ready' ? '' : 'disabled'}>${status === 'ready' ? `Débloquer (${formatCurrency(price)})` : 'Indisponible'}</button>
+                <span class="tag${badgeAccent ? ' accent' : ''}">${badgeText}</span>
+                <button class="${buttonClass}" type="button" data-upgrade="${upgrade.id}" ${buttonDisabled ? 'disabled' : ''}>${buttonLabel}</button>
             </div>
         `;
 
         const button = card.querySelector('[data-upgrade]');
-        if (button && status === 'ready') {
+        if (button && !buttonDisabled) {
             button.addEventListener('click', () => {
                 send('dealer_upgrade', { id: upgrade.id });
             });
@@ -326,15 +362,46 @@ function renderShop() {
 
         const isLocked = Boolean(item.locked);
         const isOwned = Boolean(item.owned);
-        const buttonText = item.isKit ? `Acheter (${formatCurrency(item.price || 0)})` : `Acheter (${formatCurrency(item.price || 0)})`;
+        const priceLabel = formatCurrency(item.price || 0);
+        const lockInfo = isLocked && item.lockReason ? `<div class="list-meta notice">${item.lockReason}</div>` : '';
+        const repLine = !item.isKit && item.reputation > 0 ? `<div class="list-meta">Réputation requise: ${formatNumber(item.reputation)} RP</div>` : '';
+
+        let tagText;
+        let tagAccent = false;
+        if (item.isKit) {
+            tagText = 'Consommable';
+        } else if (isOwned) {
+            tagText = 'Possédé';
+        } else if (isLocked) {
+            tagText = 'Verrouillé';
+        } else if (item.requiresUnlock) {
+            tagText = 'Débloqué';
+            tagAccent = true;
+        } else {
+            tagText = 'Disponible';
+            tagAccent = true;
+        }
+
+        let buttonLabel;
+        if (isOwned) {
+            buttonLabel = 'Possédé';
+        } else if (isLocked) {
+            buttonLabel = 'Verrouillé';
+        } else {
+            buttonLabel = item.isKit ? `Acheter (${priceLabel})` : (item.price > 0 ? `Acheter (${priceLabel})` : 'Obtenir');
+        }
 
         card.innerHTML = `
-            <h3 class="list-title">${item.label}</h3>
-            <div class="list-meta">${item.isKit ? '' : `Réputation requise: ${formatNumber(item.reputation || 0)} RP`}</div>
+            <div class="list-header">
+                <h3 class="list-title">${item.label}</h3>
+                <span class="list-price">${priceLabel}</span>
+            </div>
+            ${repLine}
             <div class="list-description">${description}</div>
+            ${lockInfo}
             <div class="list-footer">
-                <span class="tag${!isLocked && !item.isKit ? ' accent' : ''}">${item.isKit ? 'Consommable' : isLocked ? 'Réputation requise' : (isOwned ? 'Possédé' : 'Disponible')}</span>
-                <button class="${!isLocked && !isOwned ? 'primary-button' : 'secondary-button'}" type="button" data-shop-id="${item.id}" ${(!isLocked && !isOwned) ? '' : 'disabled'}>${isOwned ? 'Possédé' : isLocked ? 'Verrouillé' : buttonText}</button>
+                <span class="tag${tagAccent ? ' accent' : ''}">${tagText}</span>
+                <button class="${(!isLocked && !isOwned) ? 'primary-button' : 'secondary-button'}" type="button" data-shop-id="${item.id}" ${(!isLocked && !isOwned) ? '' : 'disabled'}>${buttonLabel}</button>
             </div>
         `;
 
