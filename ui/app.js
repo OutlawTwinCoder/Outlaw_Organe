@@ -7,8 +7,8 @@ const rareEl = document.getElementById('rare-content');
 const upgradesEl = document.getElementById('upgrades-content');
 const shopEl = document.getElementById('shop-content');
 const closeBtn = document.getElementById('close-btn');
-const tabButtons = Array.from(document.querySelectorAll('.tab'));
-const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
+const tabButtons = Array.from(appEl.querySelectorAll('.tab'));
+const tabPanels = Array.from(appEl.querySelectorAll('.tab-panel'));
 
 const isNui = typeof GetParentResourceName === 'function';
 const resourceName = isNui ? GetParentResourceName() : 'outlaw_organ';

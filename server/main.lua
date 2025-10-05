@@ -35,7 +35,8 @@ local function loadStats(identifier)
             totalQuality = 0,
             bestQuality = 0,
             sales = 0,
-            upgrades = {}
+            upgrades = {},
+            contractsByType = {}
         }
     end
     data.reputation = clampReputation(data.reputation or 0)
@@ -132,16 +133,78 @@ local function cooldownRemaining(src)
     return remain > 0 and remain or 0
 end
 
-RegisterNetEvent('outlaw_organ:startMission', function()
+RegisterNetEvent('outlaw_organ:startMission', function(payload)
     local src = source
     local remain = cooldownRemaining(src)
     if remain > 0 then
+        sendMissionSnapshot(src)
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Attends %ss avant une nouvelle mission.'):format(remain), type='error'})
     end
+
+    local mission = missions[src]
+    if mission and mission.active then
+        sendMissionSnapshot(src)
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Termine ou annule ta mission actuelle.', type='error'})
+    end
+
     local zone = Config.SpawnZones[math.random(#Config.SpawnZones)]
-    missions[src] = { netId = nil, coords = zone, startedAt = now(), harvested = 0, given = {}, canSecond = false, lastDispatchAt = 0 }
-    TriggerClientEvent('outlaw_organ:missionAssigned', src, zone)
-    sendWebhook('Mission organes assignée', ('**Joueur:** %s\n**Zone:** (%.1f, %.1f, %.1f)'):format(GetPlayerName(src), zone.x, zone.y, zone.z), 3447003)
+    local stats = select(1, getStats(src))
+    local contractId = type(payload) == 'table' and payload.contract or nil
+    local contractEntry = contractId and getMissionEntry(contractId) or nil
+
+    if contractId and not contractEntry then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Contrat introuvable.', type='error'})
+    end
+
+    if contractEntry and stats then
+        local unlocked = select(1, evaluateMissionRequirements(stats, contractEntry))
+        if not unlocked then
+            return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Contrat verrouillé: progression insuffisante.', type='error'})
+        end
+        if contractEntry.reputation and (stats.reputation or 0) < contractEntry.reputation then
+            return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Réputation insuffisante pour ce contrat.', type='error'})
+        end
+    end
+
+    local xPlayer = ESX.GetPlayerFromId(src)
+    if contractEntry and contractEntry.fee and contractEntry.fee > 0 then
+        if not xPlayer or xPlayer.getMoney() < contractEntry.fee then
+            return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Fonds insuffisants pour acheter ce contrat.', type='error'})
+        end
+        xPlayer.removeMoney(contractEntry.fee)
+    end
+
+    missions[src] = missions[src] or {}
+    missions[src].netId = nil
+    missions[src].coords = zone
+    missions[src].startedAt = now()
+    missions[src].harvested = 0
+    missions[src].given = {}
+    missions[src].canSecond = false
+    missions[src].lastDispatchAt = 0
+    missions[src].active = true
+    missions[src].contractId = contractId
+    missions[src].forcedOrgan = contractEntry and contractEntry.item or nil
+    missions[src].deadline = contractEntry and (now() + (contractEntry.timeLimit or (Config.MissionBoard and Config.MissionBoard.DefaultTimeLimit) or 0)) or nil
+    missions[src].bonusReputation = contractEntry and contractEntry.bonusReputation or 0
+
+    local payload = {
+        coords = zone,
+        label = contractEntry and (contractEntry.label or contractEntry.item) or 'Mission terrain',
+        timeLimit = contractEntry and contractEntry.timeLimit or nil,
+        contract = contractId
+    }
+
+    TriggerClientEvent('outlaw_organ:missionAssigned', src, payload)
+    if contractEntry and contractEntry.fee and contractEntry.fee > 0 then
+        TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Contrat acheté: %s (-$%s)'):format(contractEntry.label or contractId, contractEntry.fee), type='success'})
+    end
+    sendWebhook('Mission organes assignée', ('**Joueur:** %s\n**Zone:** (%.1f, %.1f, %.1f)%s'):format(
+        GetPlayerName(src), zone.x, zone.y, zone.z,
+        contractEntry and ('\n**Contrat:** '..(contractEntry.label or contractId)) or ''
+    ), 3447003)
+
+    sendMissionSnapshot(src, nil, stats)
 end)
 
 RegisterNetEvent('outlaw_organ:registerTarget', function(netId, coords)
@@ -149,6 +212,7 @@ RegisterNetEvent('outlaw_organ:registerTarget', function(netId, coords)
     missions[src] = missions[src] or { startedAt = now(), harvested = 0, given = {} }
     missions[src].netId = netId
     missions[src].coords = coords
+    missions[src].active = true
 end)
 
 local function countItem(src, name) return exports.ox_inventory:Search(src, 'count', name) or 0 end
@@ -198,7 +262,7 @@ local function pickOrganName(exclude, stats)
     local reputation = stats and (stats.reputation or 0) or 0
     for k, v in pairs(Config.ItemDetails) do
         local unlock = tonumber(v.unlockReputation or 0)
-        if reputation >= unlock then
+        if reputation >= unlock and organUnlockedForPlayer(stats, k) then
             if not exclude[k] or (Config.ItemDetails[k].limit or 1) > (exclude[k] or 0) then
                 local price = math.max(1, tonumber(v.price) or 1)
                 local w = math.floor(1000 / price)
@@ -209,7 +273,12 @@ local function pickOrganName(exclude, stats)
             end
         end
     end
-    if sum <= 0 then return 'organe' end
+    if sum <= 0 then
+        for k, _ in pairs(Config.ItemDetails) do
+            if organUnlockedForPlayer(stats, k) then return k end
+        end
+        return 'organe'
+    end
     local r, acc = math.random(1, sum), 0
     for _, it in ipairs(pool) do
         acc = acc + it.weight
@@ -262,6 +331,21 @@ end)
 RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
     local src = source
     local mission = missions[src]
+    if mission and mission.deadline and mission.deadline > 0 and now() > mission.deadline then
+        TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Mission échouée: délai dépassé.', type='error'})
+        TriggerClientEvent('outlaw_organ:clearTarget', src)
+        missions[src].active = false
+        missions[src].netId = nil
+        missions[src].startedAt = now()
+        missions[src].deadline = nil
+        missions[src].forcedOrgan = nil
+        missions[src].contractId = nil
+        missions[src].bonusReputation = nil
+        missions[src].given = {}
+        missions[src].harvested = 0
+        sendMissionSnapshot(src)
+        return
+    end
     if not mission or not mission.netId or mission.netId ~= netId then
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Aucune cible valide.', type='error'})
     end
@@ -290,8 +374,10 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
 
     if mission.harvested == 0 then
         local canSecond = false
-        local chance = (scalpelType.data and scalpelType.data.secondHarvestChance) or (Config.SecondHarvestChance or 0.0)
-        if chance > 0 and math.random() < chance then canSecond = true end
+        if not mission.forcedOrgan then
+            local chance = (scalpelType.data and scalpelType.data.secondHarvestChance) or (Config.SecondHarvestChance or 0.0)
+            if chance > 0 and math.random() < chance then canSecond = true end
+        end
         mission.canSecond = canSecond
     end
 
@@ -311,7 +397,16 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
 
     mission.given = mission.given or {}
     local stats = select(1, getStats(src))
-    local organ = pickOrganName(mission.given, stats)
+    local organ
+    if mission.forcedOrgan then
+        local limit = (Config.ItemDetails[mission.forcedOrgan] and Config.ItemDetails[mission.forcedOrgan].limit) or 1
+        if (mission.given[mission.forcedOrgan] or 0) >= limit then
+            return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Contrat déjà rempli.', type='inform'})
+        end
+        organ = mission.forcedOrgan
+    else
+        organ = pickOrganName(mission.given, stats)
+    end
 
     local born = now()
     local expires = born + ttl
@@ -357,18 +452,48 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
         end
 
         if done then
+            local completion = now()
             TriggerClientEvent('outlaw_organ:clearTarget', src)
+            local missionStart = missions[src].startedAt or completion
+            local contractId = missions[src].contractId
+            local bonusRep = missions[src].bonusReputation or 0
             missions[src].netId = nil
-            missions[src].startedAt = now()
+            missions[src].startedAt = completion
+            missions[src].active = false
+            missions[src].deadline = nil
+            missions[src].forcedOrgan = nil
+            missions[src].contractId = nil
+            missions[src].bonusReputation = nil
+            missions[src].given = {}
+            missions[src].harvested = 0
             local playerStats, identifier = getStats(src)
             if playerStats then
                 playerStats.contractsCompleted = (playerStats.contractsCompleted or 0) + 1
+                playerStats.lastContractAt = completion
+                if contractId then
+                    playerStats.contractsByType = playerStats.contractsByType or {}
+                    local history = playerStats.contractsByType[contractId] or {}
+                    history.completed = (history.completed or 0) + 1
+                    local duration = completion - missionStart
+                    if duration < 0 then duration = 0 end
+                    if not history.bestTime or duration < history.bestTime then
+                        history.bestTime = duration
+                    end
+                    playerStats.contractsByType[contractId] = history
+                    if bonusRep and bonusRep > 0 then
+                        playerStats.reputation = clampReputation((playerStats.reputation or 0) + bonusRep)
+                    end
+                end
                 if Config.Reputation and Config.Reputation.ContractBonus then
                     playerStats.reputation = clampReputation((playerStats.reputation or 0) + (Config.Reputation.ContractBonus or 0))
                 end
-                playerStats.lastContractAt = now()
                 saveStats(identifier)
+                sendMissionSnapshot(src, nil, playerStats)
+            else
+                sendMissionSnapshot(src)
             end
+        else
+            sendMissionSnapshot(src)
         end
 
         TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Récolte: %s (%d%%)'):format(organ, base), type='success'})
@@ -587,11 +712,213 @@ local function sendDealerSnapshot(src, action, stats)
     TriggerClientEvent(action or 'outlaw_organ:updateDealerMenu', src, snapshot)
 end
 
+local function getMissionContracts()
+    return (Config.MissionBoard and Config.MissionBoard.Contracts) or {}
+end
+
+local function getMissionEntry(id)
+    local contracts = getMissionContracts()
+    return contracts and contracts[id] or nil
+end
+
+local function evaluateMissionRequirements(stats, entry)
+    local reputation = stats and (stats.reputation or 0) or 0
+    local deliveries = (stats and stats.deliveries) or {}
+    local requirements, reasons = {}, {}
+    local unlocked = true
+
+    if entry.reputation and entry.reputation > 0 then
+        table.insert(requirements, {
+            type = 'reputation',
+            label = 'Réputation',
+            value = reputation,
+            required = entry.reputation
+        })
+        if reputation < entry.reputation then
+            unlocked = false
+            table.insert(reasons, ('Réputation %d/%d'):format(reputation, entry.reputation))
+        end
+    end
+
+    if entry.deliveries then
+        for organ, required in pairs(entry.deliveries) do
+            local delivered = deliveries[organ] or 0
+            local label = (Config.ItemDetails[organ] and Config.ItemDetails[organ].label) or organ
+            table.insert(requirements, {
+                type = 'delivery',
+                name = organ,
+                label = label,
+                value = delivered,
+                required = required
+            })
+            if delivered < required then
+                unlocked = false
+                table.insert(reasons, ('%s %d/%d'):format(label, delivered, required))
+            end
+        end
+    end
+
+    local progress = 1.0
+    if #requirements > 0 then
+        local sum = 0.0
+        for _, req in ipairs(requirements) do
+            if req.required and req.required > 0 then
+                sum = sum + math.min(1.0, (req.value or 0) / req.required)
+            else
+                sum = sum + 1.0
+            end
+        end
+        progress = sum / #requirements
+    end
+
+    return unlocked, requirements, reasons, progress
+end
+
+local function organUnlockedForPlayer(stats, organ)
+    local details = Config.ItemDetails[organ]
+    local reputation = stats and (stats.reputation or 0) or 0
+    if details and details.unlockReputation and reputation < details.unlockReputation then
+        return false
+    end
+    local entry = getMissionEntry(organ)
+    if entry then
+        return select(1, evaluateMissionRequirements(stats, entry))
+    end
+    return true
+end
+
+local function buildMissionSnapshot(src, stats)
+    stats = stats or select(1, getStats(src))
+    if not stats then return nil end
+
+    local reputation = stats.reputation or 0
+    local contracts = {}
+    local unlockedCount, totalContracts = 0, 0
+
+    for id, entry in pairs(getMissionContracts()) do
+        totalContracts = totalContracts + 1
+        local unlocked, requirements, reasons, progress = evaluateMissionRequirements(stats, entry)
+        if unlocked then unlockedCount = unlockedCount + 1 end
+        local history = (stats.contractsByType and stats.contractsByType[id]) or {}
+        table.insert(contracts, {
+            id = id,
+            label = entry.label or id,
+            item = entry.item or id,
+            description = entry.description or '',
+            unlocked = unlocked,
+            requirements = requirements,
+            reasons = reasons,
+            progress = progress,
+            fee = entry.fee or 0,
+            reputation = entry.reputation or 0,
+            timeLimit = entry.timeLimit or (Config.MissionBoard and Config.MissionBoard.DefaultTimeLimit) or 0,
+            bonusReputation = entry.bonusReputation or 0,
+            completed = history.completed or 0,
+            bestTime = history.bestTime,
+            order = entry.order or 999
+        })
+    end
+
+    table.sort(contracts, function(a, b)
+        if a.order == b.order then return a.label < b.label end
+        return a.order < b.order
+    end)
+
+    local nextUnlock = nil
+    for _, entry in ipairs(contracts) do
+        if not entry.unlocked then
+            nextUnlock = entry
+            break
+        end
+    end
+
+    local poolUnlocked, poolLocked = {}, {}
+    for id, entry in pairs(getMissionContracts()) do
+        local item = entry.item or id
+        local label = entry.label or (Config.ItemDetails[item] and Config.ItemDetails[item].label) or item
+        local unlocked = organUnlockedForPlayer(stats, item)
+        local info = { id = id, item = item, label = label, unlocked = unlocked, order = entry.order or 999 }
+        if unlocked then table.insert(poolUnlocked, info) else table.insert(poolLocked, info) end
+    end
+
+    table.sort(poolUnlocked, function(a, b)
+        if a.order == b.order then return a.label < b.label end
+        return a.order < b.order
+    end)
+    table.sort(poolLocked, function(a, b)
+        if a.order == b.order then return a.label < b.label end
+        return a.order < b.order
+    end)
+
+    local mission = missions[src]
+    local active
+    if mission and mission.active then
+        local remaining = 0
+        if mission.deadline and mission.deadline > 0 then
+            remaining = math.max(0, mission.deadline - now())
+        end
+        local entry = mission.contractId and getMissionEntry(mission.contractId) or nil
+        local label = entry and entry.label or 'Mission terrain'
+        local itemLabel = entry and ((Config.ItemDetails[entry.item] and Config.ItemDetails[entry.item].label) or entry.item) or nil
+        active = {
+            id = mission.contractId or 'random',
+            label = label,
+            itemLabel = itemLabel,
+            forcedOrgan = mission.forcedOrgan,
+            startedAt = mission.startedAt,
+            deadline = mission.deadline,
+            remaining = remaining,
+            type = mission.contractId and 'contract' or 'random'
+        }
+    end
+
+    local deliveries = {}
+    for organ, count in pairs(stats.deliveries or {}) do
+        deliveries[organ] = count
+    end
+    local totalDelivered = 0
+    for _, value in pairs(deliveries) do totalDelivered = totalDelivered + value end
+
+    local cooldown = cooldownRemaining(src)
+    local canStartRandom = cooldown <= 0 and not (mission and mission.active)
+
+    return {
+        reputation = reputation,
+        stats = {
+            contracts = stats.contractsCompleted or 0,
+            deliveries = deliveries,
+            totalDelivered = totalDelivered
+        },
+        contracts = contracts,
+        active = active,
+        pool = { unlocked = poolUnlocked, locked = poolLocked },
+        nextUnlock = nextUnlock,
+        cooldown = cooldown,
+        canStartRandom = canStartRandom,
+        unlockedCount = unlockedCount,
+        totalContracts = totalContracts
+    }
+end
+
+local function sendMissionSnapshot(src, action, stats)
+    local snapshot = buildMissionSnapshot(src, stats)
+    if not snapshot then return end
+    TriggerClientEvent(action or 'outlaw_organ:updateMissionMenu', src, snapshot)
+end
+
 RegisterNetEvent('outlaw_organ:requestDealerMenu', function()
     local src = source
     local payload = buildDealerSnapshot(src)
     if payload then
         TriggerClientEvent('outlaw_organ:openDealerMenu', src, payload)
+    end
+end)
+
+RegisterNetEvent('outlaw_organ:requestMissionMenu', function()
+    local src = source
+    local payload = buildMissionSnapshot(src)
+    if payload then
+        TriggerClientEvent('outlaw_organ:openMissionMenu', src, payload)
     end
 end)
 
@@ -740,6 +1067,7 @@ RegisterNetEvent('outlaw_organ:sellOrgans', function()
     end
     TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=msg, type='success'})
     sendDealerSnapshot(src, nil, stats)
+    sendMissionSnapshot(src, nil, stats)
     sendWebhook('Vente d’organes', ('**Joueur:** %s\n**Montant:** $%s'):format(GetPlayerName(src), total), 15844367)
 end)
 

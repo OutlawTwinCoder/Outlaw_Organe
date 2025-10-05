@@ -12,7 +12,8 @@ ui_page 'ui/index.html'
 files {
     'ui/index.html',
     'ui/style.css',
-    'ui/app.js'
+    'ui/app.js',
+    'ui/mission.js'
 }
 
 shared_scripts {

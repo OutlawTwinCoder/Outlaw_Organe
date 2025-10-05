@@ -58,6 +58,17 @@ Tu dois déclarer les items suivants dans `ox_inventory/data/items.lua` (ou fich
   - Les commandes rares et leur statut.
 - Certaines améliorations (ex: **Scalpel Élite**) nécessitent un certain niveau de réputation **et** des quantités livrées spécifiques pour être accessibles.
 
+## Tableau des missions
+- Parle au donneur de missions pour ouvrir l'interface **Outlaw** dédiée (même style que le dealer).
+- Chaque type de contrat (os, pieds, crânes, etc.) possède des prérequis en **livraisons cumulées** et en **réputation**.
+- Tant qu'un contrat n'est pas débloqué, l'organe correspondant ne peut pas apparaître dans les récoltes aléatoires.
+- Une fois un palier atteint, tu peux acheter un **contrat ciblé** (ex: « Commande rénale ») qui force l'organe obtenu et impose un délai (configurable) pour réussir.
+- Le menu affiche :
+  - ta progression sur chaque contrat (barres et pourcentages) ;
+  - les bonus de réputation accordés par les contrats spéciaux ;
+  - la composition actuelle de la **pool** d'organes disponibles en mission libre.
+- Ajuste les paliers, coûts, délais et bonus dans `Config.MissionBoard` (section `Config.MissionBoard.Contracts`).
+
 ## Commande utilitaire
 - `/organreset` : réinitialise ta mission et le cooldown (utile en test).
 

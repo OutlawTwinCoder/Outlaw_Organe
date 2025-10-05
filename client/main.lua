@@ -23,12 +23,20 @@ local function spawnStaticNpc(model, coords, heading)
 end
 
 local function addMissionNpcTarget(ped)
-    exports.ox_target:addLocalEntity(ped, {{
-        icon = 'fa-solid fa-briefcase-medical',
-        label = 'Démarrer une mission',
-        distance = 2.0,
-        onSelect = function(_) TriggerServerEvent('outlaw_organ:startMission') end
-    }})
+    exports.ox_target:addLocalEntity(ped, {
+        {
+            icon = 'fa-solid fa-list-check',
+            label = 'Tableau des missions',
+            distance = 2.0,
+            onSelect = function(_) TriggerServerEvent('outlaw_organ:requestMissionMenu') end
+        },
+        {
+            icon = 'fa-solid fa-briefcase-medical',
+            label = 'Mission express',
+            distance = 2.0,
+            onSelect = function(_) TriggerServerEvent('outlaw_organ:startMission', { mode = 'quick' }) end
+        }
+    })
 end
 
 local function addDealerNpcTarget(ped)
@@ -70,19 +78,40 @@ RegisterNetEvent('outlaw_organ:policePing', function(coords, text)
 end)
 
 local dealerUiOpen = false
+local missionUiOpen = false
+
+local function refreshNuiFocus()
+    SetNuiFocus(dealerUiOpen or missionUiOpen, dealerUiOpen or missionUiOpen)
+end
 
 local function closeDealerUi()
     if not dealerUiOpen then return end
     SendNUIMessage({ action = 'closeDealer' })
-    SetNuiFocus(false, false)
     dealerUiOpen = false
+    refreshNuiFocus()
+end
+
+local function closeMissionUi()
+    if not missionUiOpen then return end
+    SendNUIMessage({ action = 'closeMission' })
+    missionUiOpen = false
+    refreshNuiFocus()
 end
 
 local function openDealerUi(data)
     if not data then return end
+    if missionUiOpen then closeMissionUi() end
     SendNUIMessage({ action = 'openDealer', payload = data })
-    SetNuiFocus(true, true)
     dealerUiOpen = true
+    refreshNuiFocus()
+end
+
+local function openMissionUi(data)
+    if not data then return end
+    if dealerUiOpen then closeDealerUi() end
+    SendNUIMessage({ action = 'openMission', payload = data })
+    missionUiOpen = true
+    refreshNuiFocus()
 end
 
 RegisterNetEvent('outlaw_organ:openDealerMenu', function(data)
@@ -93,6 +122,17 @@ RegisterNetEvent('outlaw_organ:updateDealerMenu', function(data)
     if not data then return end
     if dealerUiOpen then
         SendNUIMessage({ action = 'updateDealer', payload = data })
+    end
+end)
+
+RegisterNetEvent('outlaw_organ:openMissionMenu', function(data)
+    openMissionUi(data)
+end)
+
+RegisterNetEvent('outlaw_organ:updateMissionMenu', function(data)
+    if not data then return end
+    if missionUiOpen then
+        SendNUIMessage({ action = 'updateMission', payload = data })
     end
 end)
 
@@ -120,9 +160,20 @@ RegisterNUICallback('dealer_upgrade', function(data, cb)
     cb({})
 end)
 
+RegisterNUICallback('mission_close', function(_, cb)
+    closeMissionUi()
+    cb({})
+end)
+
+RegisterNUICallback('mission_start', function(data, cb)
+    TriggerServerEvent('outlaw_organ:startMission', data or {})
+    cb({})
+end)
+
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     closeDealerUi()
+    closeMissionUi()
 end)
 
 local function createCorpseZone(ped)
@@ -155,10 +206,20 @@ local function createCorpseZone(ped)
     lib.notify({title='Organes', description='La cible est neutralisée. Prélève l’organe.', type='inform'})
 end
 
-RegisterNetEvent('outlaw_organ:missionAssigned', function(targetCoords)
+RegisterNetEvent('outlaw_organ:missionAssigned', function(data)
+    local coords = data
+    local missionLabel, timeLimit
+    if type(data) == 'table' then
+        coords = data.coords or data
+        missionLabel = data.label
+        timeLimit = data.timeLimit
+    end
+    if type(coords) ~= 'vector3' then
+        coords = vec3(coords.x, coords.y, coords.z)
+    end
     local model = Config.TargetPedModels[math.random(#Config.TargetPedModels)]
     if not loadModel(model) then return lib.notify({title='Organes', description='Erreur de chargement du ped cible', type='error'}) end
-    local ped = CreatePed(4, joaat(model), targetCoords.x, targetCoords.y, targetCoords.z - 1.0, 0.0, true, true)
+    local ped = CreatePed(4, joaat(model), coords.x, coords.y, coords.z - 1.0, 0.0, true, true)
     SetEntityAsMissionEntity(ped, true, true)
     SetBlockingOfNonTemporaryEvents(ped, true)
     SetPedFleeAttributes(ped, 0, false)
@@ -195,13 +256,19 @@ RegisterNetEvent('outlaw_organ:missionAssigned', function(targetCoords)
     SetBlipSprite(blip, Config.BlipSprite)
     SetBlipColour(blip, Config.BlipColor)
     SetBlipRoute(blip, true)
-    BeginTextCommandSetBlipName('STRING'); AddTextComponentString('Cible - Organe'); EndTextCommandSetBlipName(blip)
+    local blipName = missionLabel or 'Cible - Organe'
+    BeginTextCommandSetBlipName('STRING'); AddTextComponentString(blipName); EndTextCommandSetBlipName(blip)
 
     activeTarget.netId = netId
     activeTarget.blip = blip
 
-    TriggerServerEvent('outlaw_organ:registerTarget', netId, targetCoords)
-    lib.notify({title='Organes', description='Cible assignée. Rejoins le point sur ta carte.', type='inform'})
+    TriggerServerEvent('outlaw_organ:registerTarget', netId, coords)
+    local message = missionLabel and ('Mission: %s. Rejoins la cible.'):format(missionLabel) or 'Cible assignée. Rejoins le point sur ta carte.'
+    if timeLimit and timeLimit > 0 then
+        local minutes = math.floor(timeLimit / 60)
+        message = message .. ('\nTemps limite: %d min.'):format(minutes)
+    end
+    lib.notify({title='Organes', description=message, type='inform'})
 
     CreateThread(function()
         while DoesEntityExist(ped) do

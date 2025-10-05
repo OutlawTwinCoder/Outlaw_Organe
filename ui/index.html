@@ -46,6 +46,37 @@
             </div>
         </div>
     </div>
+    <div id="mission-app" class="hidden">
+        <div class="overlay">
+            <div class="panel">
+                <header class="panel-header">
+                    <div class="panel-titles">
+                        <h1>Tableau des missions</h1>
+                        <p id="mission-subtitle"></p>
+                    </div>
+                    <button id="mission-close-btn" class="ghost-button" type="button" title="Fermer">✕</button>
+                </header>
+                <section id="mission-summary" class="summary-grid"></section>
+                <nav class="tab-bar">
+                    <button class="tab active" data-mission-tab="progress">Progression</button>
+                    <button class="tab" data-mission-tab="contracts">Contrats</button>
+                    <button class="tab" data-mission-tab="pool">Butin</button>
+                </nav>
+                <main class="tab-content">
+                    <section class="tab-panel active" data-mission-tab="progress">
+                        <div id="mission-progress-content" class="list-grid"></div>
+                    </section>
+                    <section class="tab-panel" data-mission-tab="contracts">
+                        <div id="mission-contracts-content" class="list-grid"></div>
+                    </section>
+                    <section class="tab-panel" data-mission-tab="pool">
+                        <div id="mission-pool-content" class="list-grid"></div>
+                    </section>
+                </main>
+            </div>
+        </div>
+    </div>
     <script src="app.js" defer></script>
+    <script src="mission.js" defer></script>
 </body>
 </html>

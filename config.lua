@@ -60,6 +60,90 @@ Config.Reputation = {
 
 Config.MissionCooldown = 300
 
+-- Progression des contrats de mission (débloque la pool d'organes et les missions ciblées)
+Config.MissionBoard = {
+    DefaultTimeLimit = 15 * 60,
+    Contracts = {
+        os = {
+            label = 'Commande osseuse',
+            item = 'os',
+            order = 1,
+            description = 'Ramasser des os frais pour alimenter la chaîne clandestine.',
+            timeLimit = 10 * 60,
+            fee = 0,
+            reputation = 0,
+            deliveries = {},
+            bonusReputation = 6
+        },
+        pied = {
+            label = 'Commande pédestre',
+            item = 'pied',
+            order = 2,
+            description = 'Fournir des pieds propres pour les trafiquants.',
+            timeLimit = 12 * 60,
+            fee = 250,
+            reputation = 80,
+            deliveries = { os = 50 },
+            bonusReputation = 10
+        },
+        crane = {
+            label = 'Commande crânienne',
+            item = 'crane',
+            order = 3,
+            description = 'Collecter des boîtes crâniennes intactes.',
+            timeLimit = 12 * 60,
+            fee = 350,
+            reputation = 120,
+            deliveries = { os = 75, pied = 40 },
+            bonusReputation = 12
+        },
+        yeux = {
+            label = 'Commande oculaire',
+            item = 'yeux',
+            order = 4,
+            description = 'Livrer des yeux sans tache ni éraflure.',
+            timeLimit = 14 * 60,
+            fee = 450,
+            reputation = 180,
+            deliveries = { os = 110, pied = 65, crane = 30 },
+            bonusReputation = 14
+        },
+        organe = {
+            label = 'Commande viscérale',
+            item = 'organe',
+            order = 5,
+            description = 'Acheminer des organes internes utilisables.',
+            timeLimit = 14 * 60,
+            fee = 550,
+            reputation = 220,
+            deliveries = { os = 140, pied = 85, crane = 45, yeux = 25 },
+            bonusReputation = 16
+        },
+        rein = {
+            label = 'Commande rénale',
+            item = 'rein',
+            order = 6,
+            description = 'Prélever un rein prêt pour la transplantation.',
+            timeLimit = 15 * 60,
+            fee = 700,
+            reputation = 320,
+            deliveries = { os = 180, pied = 120, crane = 70, yeux = 40, organe = 20 },
+            bonusReputation = 20
+        },
+        coeur = {
+            label = 'Commande cardiaque',
+            item = 'coeur',
+            order = 7,
+            description = 'Assurer un cœur vibrant livré dans les temps.',
+            timeLimit = 16 * 60,
+            fee = 900,
+            reputation = 420,
+            deliveries = { os = 220, pied = 160, crane = 110, yeux = 60, rein = 30 },
+            bonusReputation = 25
+        }
+    }
+}
+
 Config.Scalpel = {
     kit   = 'surgery_kit',
     kitExtraSeconds  = 180,

@@ -158,7 +158,15 @@ body {
     transition: width 160ms ease;
 }
 
+.progress-bar--thin {
+    height: 4px;
+}
+
 .summary-card--scalpel {
+    gap: 8px;
+}
+
+.summary-card--actions {
     gap: 8px;
 }
 
@@ -336,6 +344,14 @@ button:disabled {
     align-content: flex-start;
 }
 
+#mission-progress-content.list-grid {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+#mission-contracts-content.list-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
 .list-card {
     background: var(--bg-card);
     border-radius: 12px;
@@ -413,6 +429,29 @@ button:disabled {
     gap: 3px;
     font-size: 0.75rem;
     color: var(--text-secondary);
+}
+
+.requirements--progress {
+    gap: 6px;
+}
+
+.requirement-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.requirement-row-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.requirement-row-header strong {
+    color: var(--text-primary);
+    font-weight: 600;
 }
 
 .empty-placeholder {
