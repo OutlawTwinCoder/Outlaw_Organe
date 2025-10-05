@@ -89,6 +89,13 @@ RegisterNetEvent('outlaw_organ:openDealerMenu', function(data)
     openDealerUi(data)
 end)
 
+RegisterNetEvent('outlaw_organ:updateDealerMenu', function(data)
+    if not data then return end
+    if dealerUiOpen then
+        SendNUIMessage({ action = 'updateDealer', payload = data })
+    end
+end)
+
 RegisterNUICallback('dealer_close', function(_, cb)
     closeDealerUi()
     cb({})

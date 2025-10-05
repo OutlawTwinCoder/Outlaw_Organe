@@ -393,12 +393,12 @@ local function buildDeliverySnapshot(stats)
     return deliveries
 end
 
-RegisterNetEvent('outlaw_organ:requestDealerMenu', function()
-    local src = source
-    local stats = select(1, getStats(src))
+local function buildDealerSnapshot(src, stats)
+    stats = stats or select(1, getStats(src))
     local reputation = stats and (stats.reputation or 0) or 0
     local multiplier, currentTier, nextTier = calculatePriceMultiplier(reputation)
     local deliveries = buildDeliverySnapshot(stats)
+
     local rareUnlocks = {}
     if Config.Reputation and Config.Reputation.RareOrders then
         for item, info in pairs(Config.Reputation.RareOrders) do
@@ -414,7 +414,7 @@ RegisterNetEvent('outlaw_organ:requestDealerMenu', function()
         end)
     end
 
-    local scalpelInfo = nil
+    local scalpelInfo
     local ownedScalpel = playerHasScalpel(src)
     if ownedScalpel and ownedScalpel.data then
         scalpelInfo = {
@@ -514,7 +514,7 @@ RegisterNetEvent('outlaw_organ:requestDealerMenu', function()
         avgQuality = math.floor((stats.totalQuality or 0) / (stats.sales or 1))
     end
 
-    TriggerClientEvent('outlaw_organ:openDealerMenu', src, {
+    return {
         reputation = reputation,
         multiplier = multiplier,
         tier = currentTier,
@@ -533,7 +533,21 @@ RegisterNetEvent('outlaw_organ:requestDealerMenu', function()
             variants = variantOffers,
             kit = kitOffer
         }
-    })
+    }
+end
+
+local function sendDealerSnapshot(src, action, stats)
+    local snapshot = buildDealerSnapshot(src, stats)
+    if not snapshot then return end
+    TriggerClientEvent(action or 'outlaw_organ:updateDealerMenu', src, snapshot)
+end
+
+RegisterNetEvent('outlaw_organ:requestDealerMenu', function()
+    local src = source
+    local payload = buildDealerSnapshot(src)
+    if payload then
+        TriggerClientEvent('outlaw_organ:openDealerMenu', src, payload)
+    end
 end)
 
 RegisterNetEvent('outlaw_organ:upgradeScalpel', function(id)
@@ -606,6 +620,7 @@ RegisterNetEvent('outlaw_organ:upgradeScalpel', function(id)
     stats.upgrades = stats.upgrades or {}
     stats.upgrades[upgrade.to] = now()
     saveStats(identifier)
+    sendDealerSnapshot(src, nil, stats)
 
     TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Amélioration obtenue: %s'):format(toVariant.label or toVariant.item), type='success'})
     sendWebhook('Scalpel amélioré', ('**Joueur:** %s\n**Amélioration:** %s -> %s'):format(GetPlayerName(src), fromVariant.item, toVariant.item), 5793266)
@@ -692,6 +707,7 @@ RegisterNetEvent('outlaw_organ:sellOrgans', function()
         msg = msg .. (' | Réputation +%d'):format(saleSummary.repGain)
     end
     TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=msg, type='success'})
+    sendDealerSnapshot(src, nil, stats)
     sendWebhook('Vente d’organes', ('**Joueur:** %s\n**Montant:** $%s'):format(GetPlayerName(src), total), 15844367)
 end)
 
@@ -741,6 +757,7 @@ RegisterNetEvent('outlaw_organ:buyTool', function(kind)
 
     xPlayer.removeMoney(price)
     TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Achat: %s'):format(label or item), type='success'})
+    sendDealerSnapshot(src)
 end)
 
 RegisterNetEvent('outlaw_organ:witnessDispatch', function(coords)

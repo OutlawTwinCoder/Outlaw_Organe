@@ -22,6 +22,8 @@ Missions illégales de prélèvement d'organes sur des PNJ aléatoires, avec ven
 ## Items (ox_inventory)
 Tu dois déclarer les items suivants dans `ox_inventory/data/items.lua` (ou fichier équivalent) :
 
+> 📄 Un fichier prêt à copier est disponible dans [`item_data/ox_inventory.lua`](item_data/ox_inventory.lua).
+
 ```lua
 -- OUTLAW ORGAN HARVEST ITEMS
 ['scalpel'] = { label = 'Scalpel', weight = 50, stack = true, close = true, description = 'Instrument chirurgical' },
