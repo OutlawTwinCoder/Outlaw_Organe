@@ -1,23 +1,19 @@
 Config = {}
 
--- URL du webhook Discord (remplace par le tien)
-Config.DiscordWebhook = "REPLACE_ME" -- ⚠️ Mets ton URL webhook
+Config.DiscordWebhook = "REPLACE_ME"
 
--- PNJ Mission (donne une cible à récolter)
 Config.MissionNpc = {
     model = 'a_m_m_farmer_01',
     coords = vector3(2180.5330, 3497.6675, 44.4864),
     heading = 39.1055
 }
 
--- PNJ Dealer (achète les organes, vend un scalpel)
 Config.DealerNpc = {
     model = 'a_m_y_business_01',
     coords = vector3(3559.8201, 3674.5522, 28.1219),
     heading = 169.527
 }
 
--- Zones de spawn pour les cibles (un ped apparaît dans une de ces zones)
 Config.SpawnZones = {
     vector3(-1312.7555, -1361.5681, 4.5177),
     vector3(1125.4896, -479.2893, 65.9640),
@@ -35,30 +31,79 @@ Config.SpawnZones = {
     vector3(-149.9705, 6310.4565, 31.3904),
 }
 
--- Prix & limites pour chaque item
 Config.ItemDetails = {
     rein  = { price = 400, limit = 1 },
     crane = { price = 150, limit = 1 },
     pied  = { price = 200, limit = 1 },
-    yeux  = { price = 250, limit = 1 },
+    yeux  = { price = 250, limit = 2 },
     organe= { price = 350, limit = 1 },
     coeur = { price = 800, limit = 1 },
-    os    = { price = 20,  limit = 1 },
+    os    = { price = 20,  limit = 4 },
 }
 
--- Cooldown entre deux missions (secondes)
 Config.MissionCooldown = 300
 
--- Item & prix du scalpel (vendu par le Dealer)
-Config.ScalpelItem = 'scalpel'
-Config.ScalpelPrice = 250
+Config.Scalpel = {
+    basic = 'scalpel',
+    pro   = 'scalpel_pro',
+    kit   = 'surgery_kit',
+    proQualityBonus = 10,
+    kitExtraSeconds  = 180
+}
 
--- Réglages avancés
-Config.BlipSprite = 153 -- Medical cross
-Config.BlipColor  = 1   -- Red
-Config.UseBlackMoney = true -- l’argent de la vente va en black_money si true, sinon en cash
+-- Base TTL (seconds) before organ rots (without any bonus)
+Config.OrganDecaySeconds = 600
+Config.CoolerItem  = 'cooler'
+Config.CoolerBonusSeconds = 300
+Config.IcepackItem = 'icepack'
+Config.IcepackBonusSeconds = 120
 
--- Liste de modèles de peds possibles pour la cible
+Config.QualityByKill = {
+  knife = 15,
+  melee = 10,
+  pistol = -15,
+  rifle = -20,
+  shotgun = -30,
+  explosion = -50,
+  vehicle = -40,
+  other = 0
+}
+
+Config.SecondHarvestChance = 0.17
+
+Config.Risk = {
+  InfectionChanceNoGloves = 0.25,
+  GlovesItem = 'gants',
+  InfectionDuration = 600,
+  InfectionSprintMultiplier = 0.9
+}
+
+Config.Heat = {
+  Enable = true,
+  AddOnHarvest = 20,
+  DecayPerMinute = 5,
+  DispatchThreshold = 50,
+  DispatchCooldownSeconds = 90
+}
+
+Config.Witness = {
+  Enable = true,
+  Radius = 25.0,
+  CallChance = 0.35
+}
+
+Config.PoliceJobs = { 'police' }
+Config.PolicePing = {
+  Duration = 60,
+  BlipSprite = 153,
+  BlipColor = 1
+}
+
+Config.UseBlackMoney = true
+
+Config.BlipSprite = 153
+Config.BlipColor  = 1
+
 Config.TargetPedModels = {
     'a_m_m_eastsa_01', 'a_m_m_stlat_02', 'a_m_m_salton_01',
     'a_m_y_hipster_01', 'a_m_y_vinewood_01', 'a_m_y_beach_01',
