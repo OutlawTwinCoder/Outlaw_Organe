@@ -200,6 +200,7 @@ function renderDeliveries() {
     const data = state.data || {};
     const deliveries = Array.isArray(data.deliveries) ? data.deliveries : [];
     const reputation = Number(data.reputation || 0);
+    const multiplier = Number(data.multiplier || 1);
     deliveriesEl.innerHTML = '';
 
     if (!deliveries.length) {
@@ -212,10 +213,16 @@ function renderDeliveries() {
         const unlocked = reputation >= unlock;
         const card = document.createElement('article');
         card.className = `list-card${unlocked ? '' : ' locked'}`;
+        const basePrice = Number(delivery.price || 0);
+        const adjustedPrice = basePrice * multiplier;
+        const adjustedLine = multiplier !== 1
+            ? `<div class="list-meta accent">Prix ${multiplier > 1 ? 'bonus' : 'réduit'} (${multiplier.toFixed(2)}x): ${formatCurrency(adjustedPrice)}</div>`
+            : '';
         card.innerHTML = `
             <h3 class="list-title">${delivery.label || delivery.name}</h3>
             <div class="list-meta">Livraisons totales: <strong>${formatNumber(delivery.count || 0)}</strong></div>
-            <div class="list-meta">Prix de base: ${formatCurrency(delivery.price || 0)}</div>
+            <div class="list-meta">Prix de base: ${formatCurrency(basePrice)}</div>
+            ${adjustedLine}
             <div class="list-footer">
                 <span class="tag${unlocked ? ' accent' : ''}">${unlock > 0 ? `${formatNumber(unlock)} RP requis` : 'Disponible'}</span>
             </div>
