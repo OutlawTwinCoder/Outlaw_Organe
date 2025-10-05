@@ -7,6 +7,14 @@ author 'OutlawTwinCoder'
 description 'Illegal organ harvest missions with decay/quality, multi-harvest, heat, witnesses & dispatch + inventory tooltip/inspect + live durability bar'
 version '1.3.0'
 
+ui_page 'ui/index.html'
+
+files {
+    'ui/index.html',
+    'ui/style.css',
+    'ui/app.js'
+}
+
 shared_scripts {
     '@ox_lib/init.lua',
     'config.lua'

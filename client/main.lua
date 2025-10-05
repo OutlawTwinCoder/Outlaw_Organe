@@ -34,28 +34,16 @@ end
 local function addDealerNpcTarget(ped)
     exports.ox_target:addLocalEntity(ped, {
         {
+            icon = 'fa-solid fa-handshake',
+            label = 'Parler au trafiquant',
+            distance = 2.0,
+            onSelect = function(_) TriggerServerEvent('outlaw_organ:requestDealerMenu') end
+        },
+        {
             icon = 'fa-solid fa-hand-holding-dollar',
-            label = 'Vendre mes organes',
+            label = 'Vente rapide',
             distance = 2.0,
             onSelect = function(_) TriggerServerEvent('outlaw_organ:sellOrgans') end
-        },
-        {
-            icon = 'fa-solid fa-scalpel',
-            label = ('Acheter %s (basique)'):format(Config.Scalpel.basic),
-            distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:buyTool', 'basic') end
-        },
-        {
-            icon = 'fa-solid fa-screwdriver-wrench',
-            label = ('Acheter %s (pro)'):format(Config.Scalpel.pro),
-            distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:buyTool', 'pro') end
-        },
-        {
-            icon = 'fa-solid fa-kit-medical',
-            label = ('Acheter %s (consommable)'):format(Config.Scalpel.kit),
-            distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:buyTool', 'kit') end
         }
     })
 end
@@ -79,6 +67,55 @@ RegisterNetEvent('outlaw_organ:policePing', function(coords, text)
     lib.notify({title='Dispatch', description=text or 'Activité suspecte', type='warning'})
     Wait((Config.PolicePing.Duration or 60) * 1000)
     if DoesBlipExist(blip) then RemoveBlip(blip) end
+end)
+
+local dealerUiOpen = false
+
+local function closeDealerUi()
+    if not dealerUiOpen then return end
+    SendNUIMessage({ action = 'closeDealer' })
+    SetNuiFocus(false, false)
+    dealerUiOpen = false
+end
+
+local function openDealerUi(data)
+    if not data then return end
+    SendNUIMessage({ action = 'openDealer', payload = data })
+    SetNuiFocus(true, true)
+    dealerUiOpen = true
+end
+
+RegisterNetEvent('outlaw_organ:openDealerMenu', function(data)
+    openDealerUi(data)
+end)
+
+RegisterNUICallback('dealer_close', function(_, cb)
+    closeDealerUi()
+    cb({})
+end)
+
+RegisterNUICallback('dealer_sell', function(_, cb)
+    TriggerServerEvent('outlaw_organ:sellOrgans')
+    cb({})
+end)
+
+RegisterNUICallback('dealer_buy', function(data, cb)
+    if data and data.id then
+        TriggerServerEvent('outlaw_organ:buyTool', data.id)
+    end
+    cb({})
+end)
+
+RegisterNUICallback('dealer_upgrade', function(data, cb)
+    if data and data.id then
+        TriggerServerEvent('outlaw_organ:upgradeScalpel', data.id)
+    end
+    cb({})
+end)
+
+AddEventHandler('onResourceStop', function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+    closeDealerUi()
 end)
 
 local function createCorpseZone(ped)

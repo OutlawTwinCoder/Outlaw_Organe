@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Outlaw Organ Dealer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app" class="hidden">
+        <div class="overlay">
+            <div class="panel">
+                <header class="panel-header">
+                    <div class="panel-titles">
+                        <h1>Progression &amp; réputation</h1>
+                        <p id="panel-subtitle"></p>
+                    </div>
+                    <button id="close-btn" class="ghost-button" type="button" title="Fermer">✕</button>
+                </header>
+                <section id="summary" class="summary-grid"></section>
+                <nav class="tab-bar">
+                    <button class="tab active" data-tab="overview">Aperçu</button>
+                    <button class="tab" data-tab="deliveries">Livraisons</button>
+                    <button class="tab" data-tab="rare">Commandes rares</button>
+                    <button class="tab" data-tab="upgrades">Améliorations</button>
+                    <button class="tab" data-tab="shop">Boutique</button>
+                </nav>
+                <main class="tab-content">
+                    <section class="tab-panel active" data-tab="overview">
+                        <div id="overview-content" class="panel-grid"></div>
+                    </section>
+                    <section class="tab-panel" data-tab="deliveries">
+                        <div id="deliveries-content" class="list-grid"></div>
+                    </section>
+                    <section class="tab-panel" data-tab="rare">
+                        <div id="rare-content" class="list-grid"></div>
+                    </section>
+                    <section class="tab-panel" data-tab="upgrades">
+                        <div id="upgrades-content" class="list-grid"></div>
+                    </section>
+                    <section class="tab-panel" data-tab="shop">
+                        <div id="shop-content" class="list-grid"></div>
+                    </section>
+                </main>
+            </div>
+        </div>
+    </div>
+    <script src="app.js" defer></script>
+</body>
+</html>
