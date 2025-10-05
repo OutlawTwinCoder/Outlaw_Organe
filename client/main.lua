@@ -31,31 +31,211 @@ local function addMissionNpcTarget(ped)
     }})
 end
 
+local function formatDeliveryMetadata(itemDetails, delivered)
+    local rows = {}
+    for name, info in pairs(itemDetails) do
+        local label = info.label or name
+        table.insert(rows, { label = label, value = tostring(delivered[name] or 0) })
+    end
+    table.sort(rows, function(a, b) return a.label < b.label end)
+    return rows
+end
+
+local function openDealerMenu()
+    lib.callback('outlaw_organ:getDealerData', false, function(data)
+        if not data then
+            return lib.notify({ title = 'Revendeur', description = 'Impossible d’obtenir les informations du marché.', type = 'error' })
+        end
+
+        local bonusPercent = math.floor(((data.multiplier or 1.0) - 1.0) * 100 + 0.5)
+        if bonusPercent < 0 then bonusPercent = 0 end
+
+        local statsMetadata = {
+            { label = 'Rang', value = ('%s (x%.2f)'):format(data.tierLabel or 'Novice', data.multiplier or 1.0) },
+            { label = 'Réputation', value = ('%d pts'):format(data.reputation or 0) },
+            { label = 'Qualité livrée', value = ('%d'):format(data.totalQuality or 0) },
+            { label = 'Contrats terminés', value = tostring(data.contracts or 0) }
+        }
+        if data.nextTier then
+            table.insert(statsMetadata, { label = 'Prochain rang', value = ('%s dans %d pts'):format(data.nextTier.label or '?', data.nextTier.remaining or 0) })
+        end
+
+        local deliveryMetadata = formatDeliveryMetadata(data.itemDetails or Config.ItemDetails, data.delivered or {})
+
+        lib.registerContext({
+            id = 'outlaw_organ_dealer_stats',
+            title = 'Tableau de réputation',
+            menu = 'outlaw_organ_dealer_main',
+            options = {
+                {
+                    title = 'Résumé',
+                    icon = 'fa-solid fa-chart-line',
+                    metadata = statsMetadata
+                },
+                {
+                    title = 'Livraisons cumulées',
+                    icon = 'fa-solid fa-table-list',
+                    metadata = deliveryMetadata
+                }
+            }
+        })
+
+        local scalpelLabels = {
+            basic = 'Scalpel basique',
+            pro = 'Scalpel professionnel'
+        }
+
+        local upgradeOptions = {}
+        local delivered = data.delivered or {}
+
+        for kind, state in pairs(data.upgrades or {}) do
+            local currentTier = state.current or 0
+            local currentLabel = currentTier > 0 and (state.tiers[currentTier] and state.tiers[currentTier].label) or 'Aucune amélioration'
+            table.insert(upgradeOptions, {
+                title = scalpelLabels[kind] or kind,
+                description = ('Niveau actuel: %s'):format(currentLabel),
+                icon = 'fa-solid fa-screwdriver-wrench',
+                menu = 'outlaw_organ_dealer_upgrades_' .. kind
+            })
+
+            local tierOptions = {}
+            for _, tier in ipairs(state.tiers or {}) do
+                local requirementsText = {}
+                for item, needed in pairs(tier.organs or {}) do
+                    local info = (data.itemDetails or Config.ItemDetails)[item] or {}
+                    local label = info.label or item
+                    table.insert(requirementsText, ('%s: %d/%d'):format(label, delivered[item] or 0, needed))
+                end
+                if #requirementsText == 0 then
+                    requirementsText[1] = 'Aucune exigence de livraison'
+                end
+
+                local metadata = {
+                    { label = 'Réputation requise', value = ('%d pts'):format(tier.reputation or 0) },
+                    { label = 'Bonus qualité', value = ('+%d%%'):format(tier.bonusQuality or 0) }
+                }
+                if (tier.bonusTTL or 0) > 0 then
+                    table.insert(metadata, { label = 'Conservation', value = ('+%ds'):format(tier.bonusTTL) })
+                end
+                table.insert(metadata, { label = 'Livraisons', value = table.concat(requirementsText, '\n') })
+
+                local statusLabel
+                local available = false
+                if (state.current or 0) >= tier.index then
+                    statusLabel = 'Débloqué'
+                elseif tier.index == (state.current or 0) + 1 then
+                    local enoughRep = (data.reputation or 0) >= (tier.reputation or 0)
+                    local enoughDeliveries = true
+                    for item, needed in pairs(tier.organs or {}) do
+                        if (delivered[item] or 0) < needed then enoughDeliveries = false break end
+                    end
+                    if enoughRep and enoughDeliveries then
+                        statusLabel = 'Disponible'
+                        available = true
+                    else
+                        statusLabel = 'Verrouillé'
+                    end
+                else
+                    statusLabel = 'Verrouillé'
+                end
+
+                table.insert(metadata, { label = 'Statut', value = statusLabel })
+
+                table.insert(tierOptions, {
+                    title = tier.label,
+                    description = tier.description,
+                    icon = 'fa-solid fa-wrench',
+                    metadata = metadata,
+                    disabled = not available,
+                    onSelect = function()
+                        lib.callback('outlaw_organ:upgradeScalpel', false, function(success, message)
+                            if success then
+                                lib.notify({ title = 'Atelier', description = ('Amélioration débloquée: %s'):format(message or tier.label), type = 'success' })
+                                Wait(150)
+                                openDealerMenu()
+                            else
+                                lib.notify({ title = 'Atelier', description = message or 'Action impossible', type = 'error' })
+                            end
+                        end, kind)
+                    end
+                })
+            end
+
+            lib.registerContext({
+                id = 'outlaw_organ_dealer_upgrades_' .. kind,
+                title = scalpelLabels[kind] or kind,
+                menu = 'outlaw_organ_dealer_upgrades',
+                options = (#tierOptions > 0 and tierOptions or {{ title = 'Aucune amélioration', disabled = true, icon = 'fa-solid fa-ban' }})
+            })
+        end
+
+        if #upgradeOptions == 0 then
+            upgradeOptions[1] = { title = 'Aucune amélioration disponible', disabled = true, icon = 'fa-solid fa-circle-xmark' }
+        end
+
+        lib.registerContext({
+            id = 'outlaw_organ_dealer_upgrades',
+            title = 'Atelier des scalpels',
+            menu = 'outlaw_organ_dealer_main',
+            options = upgradeOptions
+        })
+
+        lib.registerContext({
+            id = 'outlaw_organ_dealer_main',
+            title = 'Revendeur clandestin',
+            options = {
+                {
+                    title = 'Vendre mes organes',
+                    description = ('Bonus actuel: +%d%%'):format(bonusPercent),
+                    icon = 'fa-solid fa-hand-holding-dollar',
+                    serverEvent = 'outlaw_organ:sellOrgans',
+                    arrow = false
+                },
+                {
+                    title = 'Réputation & statistiques',
+                    icon = 'fa-solid fa-chart-column',
+                    menu = 'outlaw_organ_dealer_stats'
+                },
+                {
+                    title = ('Acheter %s'):format(Config.Scalpel.basic),
+                    description = ('$%d'):format((data.scalpelPrices and data.scalpelPrices.basic) or 0),
+                    icon = 'fa-solid fa-scalpel',
+                    serverEvent = 'outlaw_organ:buyTool',
+                    args = 'basic'
+                },
+                {
+                    title = ('Acheter %s'):format(Config.Scalpel.pro),
+                    description = ('$%d'):format((data.scalpelPrices and data.scalpelPrices.pro) or 0),
+                    icon = 'fa-solid fa-screwdriver-wrench',
+                    serverEvent = 'outlaw_organ:buyTool',
+                    args = 'pro'
+                },
+                {
+                    title = ('Acheter %s'):format(Config.Scalpel.kit),
+                    description = ('$%d'):format((data.scalpelPrices and data.scalpelPrices.kit) or 0),
+                    icon = 'fa-solid fa-kit-medical',
+                    serverEvent = 'outlaw_organ:buyTool',
+                    args = 'kit'
+                },
+                {
+                    title = 'Atelier des scalpels',
+                    icon = 'fa-solid fa-hammer',
+                    menu = 'outlaw_organ_dealer_upgrades'
+                }
+            }
+        })
+
+        lib.showContext('outlaw_organ_dealer_main')
+    end)
+end
+
 local function addDealerNpcTarget(ped)
     exports.ox_target:addLocalEntity(ped, {
         {
-            icon = 'fa-solid fa-hand-holding-dollar',
-            label = 'Vendre mes organes',
+            icon = 'fa-solid fa-handshake-simple',
+            label = 'Parler au revendeur',
             distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:sellOrgans') end
-        },
-        {
-            icon = 'fa-solid fa-scalpel',
-            label = ('Acheter %s (basique)'):format(Config.Scalpel.basic),
-            distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:buyTool', 'basic') end
-        },
-        {
-            icon = 'fa-solid fa-screwdriver-wrench',
-            label = ('Acheter %s (pro)'):format(Config.Scalpel.pro),
-            distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:buyTool', 'pro') end
-        },
-        {
-            icon = 'fa-solid fa-kit-medical',
-            label = ('Acheter %s (consommable)'):format(Config.Scalpel.kit),
-            distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:buyTool', 'kit') end
+            onSelect = function(_) openDealerMenu() end
         }
     })
 end
