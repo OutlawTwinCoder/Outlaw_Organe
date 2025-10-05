@@ -25,6 +25,9 @@ Tu dois déclarer les items suivants dans `ox_inventory/data/items.lua` (ou fich
 ```lua
 -- OUTLAW ORGAN HARVEST ITEMS
 ['scalpel'] = { label = 'Scalpel', weight = 50, stack = true, close = true, description = 'Instrument chirurgical' },
+['scalpel_pro'] = { label = 'Scalpel Pro', weight = 50, stack = true, close = true, description = 'Affûtage renforcé' },
+['scalpel_elite'] = { label = 'Scalpel Élite', weight = 50, stack = true, close = true, description = 'Lame personnalisée et équilibrée' },
+['surgery_kit'] = { label = 'Kit chirurgical', weight = 150, stack = true, close = true, description = 'Stérilisation et outils à usage unique' },
 ['rein']    = { label = 'Rein', weight = 200, stack = true, close = true },
 ['crane']   = { label = 'Crâne', weight = 300, stack = true, close = true },
 ['pied']    = { label = 'Pied', weight = 250, stack = true, close = true },
@@ -39,8 +42,19 @@ Tu dois déclarer les items suivants dans `ox_inventory/data/items.lua` (ou fich
 ## Fonctionnement
 - Parle au **PNJ Mission** pour recevoir une **cible** (ped aléatoire) dans une zone.
 - Approche la cible et utilise l’option **Prélever un organe** (besoin d’un **scalpel**).
-- Une fois l’organe obtenu, rends-toi au **Dealer** pour **vendre** tes organes.
+- Une fois l’organe obtenu, rends-toi au **Dealer** pour **vendre** tes organes ou accéder au nouveau **menu réputation**.
+- Les ventes de **qualité** améliorent ta réputation et débloquent des commandes rares (comme le **cœur**) et des bonus sur le prix de base.
+- Utilise le menu du dealer pour acheter du matériel, suivre tes statistiques et **améliorer ton scalpel** si tu as les livraisons requises.
 - **Cooldown** configurable entre deux missions (par joueur).
+
+## Réputation du dealer
+- Chaque organe vendu octroie des points de réputation en fonction de la qualité et du type de pièce.
+- Des **paliers** augmentent automatiquement le multiplicateur de prix et débloquent de nouveaux organes dans la rotation des missions.
+- Le menu du dealer affiche :
+  - Les contrats terminés, la qualité moyenne et la meilleure qualité livrée.
+  - Le cumul de chaque organe vendu et les seuils de déblocage.
+  - Les commandes rares et leur statut.
+- Certaines améliorations (ex: **Scalpel Élite**) nécessitent un certain niveau de réputation **et** des quantités livrées spécifiques pour être accessibles.
 
 ## Commande utilitaire
 - `/organreset` : réinitialise ta mission et le cooldown (utile en test).

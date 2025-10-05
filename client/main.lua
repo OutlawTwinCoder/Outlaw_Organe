@@ -34,28 +34,16 @@ end
 local function addDealerNpcTarget(ped)
     exports.ox_target:addLocalEntity(ped, {
         {
+            icon = 'fa-solid fa-handshake',
+            label = 'Parler au trafiquant',
+            distance = 2.0,
+            onSelect = function(_) TriggerServerEvent('outlaw_organ:requestDealerMenu') end
+        },
+        {
             icon = 'fa-solid fa-hand-holding-dollar',
-            label = 'Vendre mes organes',
+            label = 'Vente rapide',
             distance = 2.0,
             onSelect = function(_) TriggerServerEvent('outlaw_organ:sellOrgans') end
-        },
-        {
-            icon = 'fa-solid fa-scalpel',
-            label = ('Acheter %s (basique)'):format(Config.Scalpel.basic),
-            distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:buyTool', 'basic') end
-        },
-        {
-            icon = 'fa-solid fa-screwdriver-wrench',
-            label = ('Acheter %s (pro)'):format(Config.Scalpel.pro),
-            distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:buyTool', 'pro') end
-        },
-        {
-            icon = 'fa-solid fa-kit-medical',
-            label = ('Acheter %s (consommable)'):format(Config.Scalpel.kit),
-            distance = 2.0,
-            onSelect = function(_) TriggerServerEvent('outlaw_organ:buyTool', 'kit') end
         }
     })
 end
@@ -79,6 +67,222 @@ RegisterNetEvent('outlaw_organ:policePing', function(coords, text)
     lib.notify({title='Dispatch', description=text or 'Activité suspecte', type='warning'})
     Wait((Config.PolicePing.Duration or 60) * 1000)
     if DoesBlipExist(blip) then RemoveBlip(blip) end
+end)
+
+local function registerDealerMenus(data)
+    local reputation = data.reputation or 0
+    local multiplier = data.multiplier or 1.0
+    local tierName = (data.tier and data.tier.name) or 'Inconnu'
+    local descParts = {('Rang: %s'):format(tierName), ('Réputation: %d'):format(reputation), ('Bonus prix: x%.2f'):format(multiplier)}
+    if data.nextTier and data.nextTier.reputation then
+        table.insert(descParts, ('Prochain rang: %s (%d RP)'):format(data.nextTier.name or '???', data.nextTier.reputation))
+    end
+    if data.scalpel then
+        local chance = data.scalpel.secondChance and math.floor(data.scalpel.secondChance * 100) or 0
+        table.insert(descParts, ('Scalpel: %s (+%d qualité, %d%% chance double prélèvement)'):format(data.scalpel.label, data.scalpel.bonusQuality or 0, chance))
+    end
+    local mainOptions = {
+        {
+            title = 'Vendre mes organes',
+            description = 'Liquider immédiatement votre stock actuel.',
+            icon = 'fa-solid fa-hand-holding-dollar',
+            serverEvent = 'outlaw_organ:sellOrgans'
+        },
+        {
+            title = 'Acheter du matériel',
+            description = 'Scalpels disponibles et consommables.',
+            icon = 'fa-solid fa-scalpel',
+            menu = 'outlaw_organ:dealerBuy'
+        },
+        {
+            title = 'Réputation & livraisons',
+            description = 'Consulter votre progression détaillée.',
+            icon = 'fa-solid fa-chart-simple',
+            menu = 'outlaw_organ:dealerStats'
+        },
+        {
+            title = 'Améliorer mon scalpel',
+            description = (not data.upgrades or #data.upgrades == 0) and 'Aucune amélioration débloquée pour le moment.' or 'Débloquer des scalpels uniques via la réputation.',
+            icon = 'fa-solid fa-screwdriver-wrench',
+            menu = 'outlaw_organ:dealerUpgrades'
+        }
+    }
+
+    lib.registerContext({
+        id = 'outlaw_organ:dealerMain',
+        title = 'Marché noir - Organes',
+        description = table.concat(descParts, '\n'),
+        options = mainOptions
+    })
+
+    local buyOptions = {}
+    local variants = Config.Scalpel and Config.Scalpel.variants or {}
+    local variantList = {}
+    for key, variant in pairs(variants) do
+        if variant.buyPrice and variant.buyPrice > 0 then
+            table.insert(variantList, { key = key, data = variant })
+        end
+    end
+    table.sort(variantList, function(a, b)
+        return (a.data.buyPrice or 0) < (b.data.buyPrice or 0)
+    end)
+    for _, entry in ipairs(variantList) do
+        local key = entry.key
+        local variant = entry.data
+        local locked = variant.reputation and reputation < variant.reputation
+        local label = variant.label or variant.item
+        local quality = variant.bonusQuality or 0
+        local secondChance = variant.secondHarvestChance and math.floor(variant.secondHarvestChance * 100) or 0
+        local description = ('Prix: $%d | Bonus qualité: +%d | Chance double: %d%%'):format(variant.buyPrice, quality, secondChance)
+        local option = {
+            title = label,
+            description = description,
+            icon = locked and 'fa-solid fa-lock' or 'fa-solid fa-scalpel',
+            disabled = locked,
+            rightLabel = locked and 'LOCK' or '$' .. variant.buyPrice,
+            metadata = {}
+        }
+        if variant.reputation and variant.reputation > 0 then
+            table.insert(option.metadata, {label = 'Réputation requise', value = tostring(variant.reputation)})
+        end
+        if not locked then
+            option.serverEvent = 'outlaw_organ:buyTool'
+            option.args = key
+        end
+        table.insert(buyOptions, option)
+    end
+    if Config.Scalpel and Config.Scalpel.kit then
+        table.insert(buyOptions, {
+            title = 'Kit chirurgical',
+            description = 'Recharge de temps supplémentaire pour les organes frais.',
+            icon = 'fa-solid fa-kit-medical',
+            rightLabel = '$400',
+            serverEvent = 'outlaw_organ:buyTool',
+            args = 'kit'
+        })
+    end
+    if #buyOptions == 0 then
+        table.insert(buyOptions, { title = 'Aucune offre disponible', disabled = true })
+    end
+    lib.registerContext({
+        id = 'outlaw_organ:dealerBuy',
+        title = 'Boutique du trafiquant',
+        menu = 'outlaw_organ:dealerMain',
+        options = buyOptions
+    })
+
+    local stats = data.stats or {}
+    local statsOptions = {
+        {
+            title = ('Contrats terminés: %d'):format(stats.contracts or 0),
+            description = ('Qualité moyenne: %d%% | Meilleure qualité: %d%%'):format(stats.averageQuality or 0, stats.bestQuality or 0),
+            icon = 'fa-solid fa-list-check',
+            disabled = true
+        },
+        {
+            title = ('Organes vendus: %d'):format(stats.totalSales or 0),
+            icon = 'fa-solid fa-boxes-stacked',
+            disabled = true
+        },
+        {
+            title = 'Détails des livraisons',
+            description = 'Voir le cumul par organe.',
+            icon = 'fa-solid fa-dolly',
+            menu = 'outlaw_organ:dealerDeliveries'
+        }
+    }
+    if data.rare and #data.rare > 0 then
+        table.insert(statsOptions, {
+            title = 'Commandes rares',
+            description = 'Statut de vos accès aux pièces spéciales.',
+            icon = 'fa-solid fa-heart-pulse',
+            menu = 'outlaw_organ:dealerRare'
+        })
+    end
+    lib.registerContext({
+        id = 'outlaw_organ:dealerStats',
+        title = 'Progression & réputation',
+        menu = 'outlaw_organ:dealerMain',
+        options = statsOptions
+    })
+
+    local deliveryOptions = {}
+    for _, delivery in ipairs(data.deliveries or {}) do
+        local unlocked = reputation >= (delivery.unlock or 0)
+        local unlockText = delivery.unlock and delivery.unlock > 0 and ('Déblocage: %d RP'):format(delivery.unlock) or 'Disponible'
+        table.insert(deliveryOptions, {
+            title = delivery.label or delivery.name,
+            description = ('Livraisons: %d | Prix de base: $%d'):format(delivery.count or 0, delivery.price or 0),
+            icon = unlocked and 'fa-solid fa-box-open' or 'fa-solid fa-lock',
+            disabled = true,
+            metadata = {{label = 'Déblocage', value = unlockText}}
+        })
+    end
+    if #deliveryOptions == 0 then deliveryOptions = {{ title = 'Aucune livraison enregistrée', disabled = true }} end
+    lib.registerContext({
+        id = 'outlaw_organ:dealerDeliveries',
+        title = 'Détails des livraisons',
+        menu = 'outlaw_organ:dealerStats',
+        options = deliveryOptions
+    })
+
+    local rareOptions = {}
+    for _, rare in ipairs(data.rare or {}) do
+        local unlocked = rare.unlocked
+        local title = rare.label or rare.name
+        table.insert(rareOptions, {
+            title = title,
+            description = ('Requis: %d RP | Statut: %s'):format(rare.required or 0, unlocked and 'Débloqué' or 'Verrouillé'),
+            icon = unlocked and 'fa-solid fa-heart' or 'fa-solid fa-heart-crack',
+            disabled = true
+        })
+    end
+    if #rareOptions == 0 then rareOptions = {{ title = 'Aucune commande rare', disabled = true }} end
+    lib.registerContext({
+        id = 'outlaw_organ:dealerRare',
+        title = 'Commandes rares',
+        menu = 'outlaw_organ:dealerStats',
+        options = rareOptions
+    })
+
+    local upgradeOptions = {}
+    for _, upgrade in ipairs(data.upgrades or {}) do
+        local option = {
+            title = upgrade.label,
+            icon = 'fa-solid fa-screwdriver-wrench',
+            rightLabel = upgrade.status == 'ready' and 'PRÊT' or (upgrade.status == 'owned' and 'OBTENU' or 'LOCK'),
+            metadata = {},
+            description = ('Prix: $%d | Réputation requise: %d'):format(upgrade.price or 0, upgrade.reputation or 0)
+        }
+        if upgrade.reasons and #upgrade.reasons > 0 then
+            for _, reason in ipairs(upgrade.reasons) do
+                table.insert(option.metadata, {label = 'Condition', value = reason})
+            end
+        end
+        if upgrade.status == 'ready' then
+            option.serverEvent = 'outlaw_organ:upgradeScalpel'
+            option.args = upgrade.id
+        else
+            option.disabled = true
+        end
+        if upgrade.targetOwned then
+            option.disabled = true
+        end
+        table.insert(upgradeOptions, option)
+    end
+    if #upgradeOptions == 0 then upgradeOptions = {{ title = 'Aucune amélioration disponible', disabled = true }} end
+    lib.registerContext({
+        id = 'outlaw_organ:dealerUpgrades',
+        title = 'Atelier clandestin',
+        menu = 'outlaw_organ:dealerMain',
+        options = upgradeOptions
+    })
+end
+
+RegisterNetEvent('outlaw_organ:openDealerMenu', function(data)
+    if not data then return end
+    registerDealerMenus(data)
+    lib.showContext('outlaw_organ:dealerMain')
 end)
 
 local function createCorpseZone(ped)

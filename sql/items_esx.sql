@@ -1,6 +1,7 @@
 INSERT INTO items (name, label, weight) VALUES
 ('scalpel', 'Scalpel', 1),
 ('scalpel_pro', 'Scalpel Pro', 1),
+('scalpel_elite', 'Scalpel Élite', 1),
 ('surgery_kit', 'Kit chirurgical', 2),
 ('cooler', 'Glacière', 5),
 ('icepack', 'Pack de glace', 1),

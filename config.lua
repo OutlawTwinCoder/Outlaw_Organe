@@ -32,23 +32,52 @@ Config.SpawnZones = {
 }
 
 Config.ItemDetails = {
-    rein  = { price = 400, limit = 1 },
-    crane = { price = 150, limit = 1 },
-    pied  = { price = 200, limit = 1 },
-    yeux  = { price = 250, limit = 2 },
-    organe= { price = 350, limit = 1 },
-    coeur = { price = 800, limit = 1 },
-    os    = { price = 20,  limit = 4 },
+    rein  = { label = 'Rein',   price = 400, limit = 1, rep = 8,  unlockReputation = 0 },
+    crane = { label = 'Crâne',  price = 150, limit = 1, rep = 4,  unlockReputation = 0 },
+    pied  = { label = 'Pied',   price = 200, limit = 1, rep = 5,  unlockReputation = 0 },
+    yeux  = { label = 'Yeux',   price = 250, limit = 2, rep = 6,  unlockReputation = 120 },
+    organe= { label = 'Organe', price = 350, limit = 1, rep = 7,  unlockReputation = 0 },
+    coeur = { label = 'Cœur',   price = 900, limit = 1, rep = 18, unlockReputation = 320 },
+    os    = { label = 'Os',     price = 20,  limit = 4, rep = 1,  unlockReputation = 0 },
+}
+
+Config.Reputation = {
+    Max = 2000,
+    BaseGainPerItem = 3,
+    QualityWeight = 0.25,
+    ContractBonus = 25,
+    Tiers = {
+        { name = 'Recrue',        reputation = 0,   multiplier = 1.0 },
+        { name = 'Complice',      reputation = 120, multiplier = 1.1 },
+        { name = 'Dissecteur',    reputation = 320, multiplier = 1.25 },
+        { name = 'Chirurgien',    reputation = 620, multiplier = 1.4 },
+        { name = 'Légende',       reputation = 1100, multiplier = 1.6 },
+    },
+    RareOrders = {
+        coeur = { reputation = 320 },
+    }
 }
 
 Config.MissionCooldown = 300
 
 Config.Scalpel = {
-    basic = 'scalpel',
-    pro   = 'scalpel_pro',
     kit   = 'surgery_kit',
-    proQualityBonus = 10,
-    kitExtraSeconds  = 180
+    kitExtraSeconds  = 180,
+    variants = {
+        basic = { item = 'scalpel',      label = 'Scalpel (basique)', bonusQuality = 0,  buyPrice = 250,  reputation = 0,   secondHarvestChance = 0.0 },
+        pro   = { item = 'scalpel_pro',  label = 'Scalpel (pro)',     bonusQuality = 10, buyPrice = 1500, reputation = 120, secondHarvestChance = 0.2 },
+        elite = { item = 'scalpel_elite',label = 'Scalpel (élite)',   bonusQuality = 18, buyPrice = 0,    reputation = 380, secondHarvestChance = 0.35 },
+    },
+    upgrades = {
+        elite = {
+            id = 'elite',
+            from = 'pro',
+            to = 'elite',
+            price = 5500,
+            reputation = 380,
+            deliveries = { rein = 20, yeux = 12, coeur = 3 },
+        }
+    }
 }
 
 -- Base TTL (seconds) before organ rots (without any bonus)
