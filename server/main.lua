@@ -3,8 +3,87 @@ local ESX = exports['es_extended']:getSharedObject()
 local missions = {} -- [src] = { netId=..., coords=vector3, startedAt=os.time(), harvested=0, given={}, canSecond=false, lastDispatchAt=0 }
 local heat = {}     -- [src] = { value=0, updatedAt=os.time() }
 local invOpen = {}  -- [src] = true/false
+local statsCache = {} -- [identifier] = stats table
 
 local function now() return os.time() end
+
+local function getIdentifier(src)
+    local xPlayer = ESX.GetPlayerFromId(src)
+    if not xPlayer then return nil end
+    local identifier = xPlayer.identifier
+    if not identifier and xPlayer.getIdentifier then identifier = xPlayer.getIdentifier() end
+    return identifier
+end
+
+local function loadStats(identifier)
+    if not identifier then return nil end
+    if statsCache[identifier] then return statsCache[identifier] end
+    local raw = GetResourceKvpString(('outlaw_organe:stats:%s'):format(identifier))
+    local data = raw and json.decode(raw) or nil
+    if not data then
+        data = {
+            reputation = 0,
+            contractsCompleted = 0,
+            deliveries = {},
+            totalQuality = 0,
+            bestQuality = 0,
+            sales = 0,
+            upgrades = {}
+        }
+    end
+    data.reputation = clampReputation(data.reputation or 0)
+    statsCache[identifier] = data
+    return data
+end
+
+local function saveStats(identifier)
+    if not identifier then return end
+    local data = statsCache[identifier]
+    if not data then return end
+    SetResourceKvp(('outlaw_organe:stats:%s'):format(identifier), json.encode(data))
+end
+
+local function getStats(src)
+    local identifier = getIdentifier(src)
+    if not identifier then return nil, nil end
+    local data = loadStats(identifier)
+    return data, identifier
+end
+
+local function clampReputation(value)
+    if not value then return 0 end
+    local max = Config.Reputation and Config.Reputation.Max
+    if max and max > 0 then return math.min(value, max) end
+    return value
+end
+
+local sortedTiers
+local function getSortedTiers()
+    if sortedTiers then return sortedTiers end
+    sortedTiers = {}
+    local tiers = (Config.Reputation and Config.Reputation.Tiers) or {}
+    for _, tier in ipairs(tiers) do table.insert(sortedTiers, tier) end
+    table.sort(sortedTiers, function(a, b)
+        return (a.reputation or 0) < (b.reputation or 0)
+    end)
+    return sortedTiers
+end
+
+local function calculatePriceMultiplier(reputation)
+    local tiers = getSortedTiers()
+    local current = tiers[1] or { name = 'Recrue', reputation = 0, multiplier = 1.0 }
+    local nextTier = nil
+    local multiplier = current.multiplier or 1.0
+    for _, tier in ipairs(tiers) do
+        if reputation >= (tier.reputation or 0) then
+            current = tier
+            multiplier = tier.multiplier or multiplier
+        elseif not nextTier then
+            nextTier = tier
+        end
+    end
+    return multiplier, current, nextTier
+end
 
 local function updateHeat(src, delta)
     heat[src] = heat[src] or { value = 0, updatedAt = now() }
@@ -77,9 +156,19 @@ local function removeItem(src, name, count) return exports.ox_inventory:RemoveIt
 local function hasItem(src, name) return countItem(src, name) > 0 end
 
 local function playerHasScalpel(src)
-    if Config.Scalpel and Config.Scalpel.basic and hasItem(src, Config.Scalpel.basic) then return 'basic' end
-    if Config.Scalpel and Config.Scalpel.pro and hasItem(src, Config.Scalpel.pro) then return 'pro' end
-    return false
+    if not Config.Scalpel or not Config.Scalpel.variants then return nil end
+    local bestKey, bestData = nil, nil
+    for key, data in pairs(Config.Scalpel.variants) do
+        if data.item and hasItem(src, data.item) then
+            if not bestData or (data.bonusQuality or 0) > (bestData.bonusQuality or 0) then
+                bestKey, bestData = key, data
+            end
+        end
+    end
+    if bestKey then
+        return { key = bestKey, data = bestData }
+    end
+    return nil
 end
 
 local function baseQualityFromCause(causeHash)
@@ -103,16 +192,21 @@ local function baseQualityFromCause(causeHash)
     return Q.other
 end
 
-local function pickOrganName(exclude)
+local function pickOrganName(exclude, stats)
     local pool, sum = {}, 0
     exclude = exclude or {}
+    local reputation = stats and (stats.reputation or 0) or 0
     for k, v in pairs(Config.ItemDetails) do
-        if not exclude[k] or (Config.ItemDetails[k].limit or 1) > (exclude[k] or 0) then
-            local price = math.max(1, tonumber(v.price) or 1)
-            local w = math.floor(1000 / price)
-            if w < 1 then w = 1 end
-            sum = sum + w
-            table.insert(pool, {name=k, weight=w})
+        local unlock = tonumber(v.unlockReputation or 0)
+        if reputation >= unlock then
+            if not exclude[k] or (Config.ItemDetails[k].limit or 1) > (exclude[k] or 0) then
+                local price = math.max(1, tonumber(v.price) or 1)
+                local w = math.floor(1000 / price)
+                if v.weight and v.weight > 0 then w = v.weight end
+                if w < 1 then w = 1 end
+                sum = sum + w
+                table.insert(pool, {name=k, weight=w})
+            end
         end
     end
     if sum <= 0 then return 'organe' end
@@ -185,7 +279,9 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
 
     local scalpelType = playerHasScalpel(src)
     if not scalpelType then
-        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Tu as besoin d’un %s.'):format(Config.Scalpel.basic), type='error'})
+        local baseVariant = Config.Scalpel and Config.Scalpel.variants and Config.Scalpel.variants.basic
+        local label = baseVariant and (baseVariant.label or baseVariant.item) or 'scalpel'
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Tu as besoin d’un %s.'):format(label), type='error'})
     end
 
     if mission.harvested >= 1 and not mission.canSecond then
@@ -194,12 +290,15 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
 
     if mission.harvested == 0 then
         local canSecond = false
-        if scalpelType == 'pro' and math.random() < (Config.SecondHarvestChance or 0.15) then canSecond = true end
+        local chance = (scalpelType.data and scalpelType.data.secondHarvestChance) or (Config.SecondHarvestChance or 0.0)
+        if chance > 0 and math.random() < chance then canSecond = true end
         mission.canSecond = canSecond
     end
 
     local base = 80 + baseQualityFromCause(causeHash or 0)
-    if scalpelType == 'pro' then base = base + (Config.Scalpel.proQualityBonus or 10) end
+    if scalpelType.data and scalpelType.data.bonusQuality then
+        base = base + scalpelType.data.bonusQuality
+    end
     base = math.max(20, math.min(100, base))
 
     local ttl = Config.OrganDecaySeconds or 600
@@ -211,7 +310,8 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
     end
 
     mission.given = mission.given or {}
-    local organ = pickOrganName(mission.given)
+    local stats = select(1, getStats(src))
+    local organ = pickOrganName(mission.given, stats)
 
     local born = now()
     local expires = born + ttl
@@ -260,10 +360,218 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
             TriggerClientEvent('outlaw_organ:clearTarget', src)
             missions[src].netId = nil
             missions[src].startedAt = now()
+            local playerStats, identifier = getStats(src)
+            if playerStats then
+                playerStats.contractsCompleted = (playerStats.contractsCompleted or 0) + 1
+                if Config.Reputation and Config.Reputation.ContractBonus then
+                    playerStats.reputation = clampReputation((playerStats.reputation or 0) + (Config.Reputation.ContractBonus or 0))
+                end
+                playerStats.lastContractAt = now()
+                saveStats(identifier)
+            end
         end
 
         TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Récolte: %s (%d%%)'):format(organ, base), type='success'})
     end)
+end)
+
+local function buildDeliverySnapshot(stats)
+    local deliveries = {}
+    for name, data in pairs(Config.ItemDetails) do
+        table.insert(deliveries, {
+            name = name,
+            label = data.label or name,
+            count = stats and stats.deliveries and (stats.deliveries[name] or 0) or 0,
+            price = data.price or 0,
+            unlock = data.unlockReputation or 0
+        })
+    end
+    table.sort(deliveries, function(a, b)
+        if a.price == b.price then return a.name < b.name end
+        return a.price > b.price
+    end)
+    return deliveries
+end
+
+RegisterNetEvent('outlaw_organ:requestDealerMenu', function()
+    local src = source
+    local stats = select(1, getStats(src))
+    local reputation = stats and (stats.reputation or 0) or 0
+    local multiplier, currentTier, nextTier = calculatePriceMultiplier(reputation)
+    local deliveries = buildDeliverySnapshot(stats)
+    local rareUnlocks = {}
+    if Config.Reputation and Config.Reputation.RareOrders then
+        for item, info in pairs(Config.Reputation.RareOrders) do
+            table.insert(rareUnlocks, {
+                name = item,
+                label = (Config.ItemDetails[item] and Config.ItemDetails[item].label) or item,
+                required = info.reputation or 0,
+                unlocked = reputation >= (info.reputation or 0)
+            })
+        end
+        table.sort(rareUnlocks, function(a, b)
+            return a.required < b.required
+        end)
+    end
+
+    local scalpelInfo = nil
+    local ownedScalpel = playerHasScalpel(src)
+    if ownedScalpel and ownedScalpel.data then
+        scalpelInfo = {
+            key = ownedScalpel.key,
+            label = ownedScalpel.data.label or ownedScalpel.data.item,
+            bonusQuality = ownedScalpel.data.bonusQuality or 0,
+            secondChance = ownedScalpel.data.secondHarvestChance or 0
+        }
+    end
+
+    local upgrades = {}
+    for id, upgrade in pairs((Config.Scalpel and Config.Scalpel.upgrades) or {}) do
+        local variants = Config.Scalpel.variants or {}
+        local fromVariant = variants[upgrade.from or '']
+        local toVariant = variants[upgrade.to or '']
+        if fromVariant and toVariant then
+            local entry = {
+                id = upgrade.id or id,
+                label = toVariant.label or toVariant.item,
+                price = upgrade.price or 0,
+                reputation = upgrade.reputation or 0,
+                deliveries = upgrade.deliveries or {},
+                hasBase = hasItem(src, fromVariant.item),
+                targetOwned = toVariant.item and hasItem(src, toVariant.item)
+            }
+            entry.reasons = {}
+            if entry.targetOwned then
+                entry.status = 'owned'
+            else
+                if reputation < entry.reputation then
+                    table.insert(entry.reasons, ('Réputation %d/%d'):format(reputation, entry.reputation))
+                end
+                if upgrade.deliveries then
+                    for organ, count in pairs(upgrade.deliveries) do
+                        local delivered = stats and stats.deliveries and (stats.deliveries[organ] or 0) or 0
+                        if delivered < count then
+                            table.insert(entry.reasons, ('%s %d/%d'):format((Config.ItemDetails[organ] and Config.ItemDetails[organ].label) or organ, delivered, count))
+                        end
+                    end
+                end
+                if not entry.hasBase then
+                    table.insert(entry.reasons, ('Posséder: %s'):format(fromVariant.label or fromVariant.item))
+                end
+                if #entry.reasons == 0 then
+                    entry.status = 'ready'
+                else
+                    entry.status = 'locked'
+                end
+            end
+            table.insert(upgrades, entry)
+        end
+    end
+    table.sort(upgrades, function(a, b)
+        if a.status == b.status then return (a.reputation or 0) < (b.reputation or 0) end
+        if a.status == 'ready' then return true end
+        if b.status == 'ready' then return false end
+        if a.status == 'owned' then return false end
+        if b.status == 'owned' then return true end
+        return (a.reputation or 0) < (b.reputation or 0)
+    end)
+
+    local avgQuality = 0
+    if stats and (stats.sales or 0) > 0 then
+        avgQuality = math.floor((stats.totalQuality or 0) / (stats.sales or 1))
+    end
+
+    TriggerClientEvent('outlaw_organ:openDealerMenu', src, {
+        reputation = reputation,
+        multiplier = multiplier,
+        tier = currentTier,
+        nextTier = nextTier,
+        deliveries = deliveries,
+        rare = rareUnlocks,
+        stats = {
+            contracts = stats and (stats.contractsCompleted or 0) or 0,
+            bestQuality = stats and (stats.bestQuality or 0) or 0,
+            averageQuality = avgQuality,
+            totalSales = stats and (stats.sales or 0) or 0
+        },
+        scalpel = scalpelInfo,
+        upgrades = upgrades
+    })
+end)
+
+RegisterNetEvent('outlaw_organ:upgradeScalpel', function(id)
+    local src = source
+    local xPlayer = ESX.GetPlayerFromId(src)
+    if not xPlayer then return end
+
+    local upgrade = Config.Scalpel and Config.Scalpel.upgrades and Config.Scalpel.upgrades[id]
+    if not upgrade then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Amélioration introuvable.', type='error'})
+    end
+
+    local variants = Config.Scalpel.variants or {}
+    local fromVariant = variants[upgrade.from or '']
+    local toVariant = variants[upgrade.to or '']
+    if not fromVariant or not toVariant then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Configuration incomplète.', type='error'})
+    end
+
+    if not hasItem(src, fromVariant.item) then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Tu dois posséder %s.'):format(fromVariant.label or fromVariant.item), type='error'})
+    end
+
+    if hasItem(src, toVariant.item) then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Tu possèdes déjà cette amélioration.', type='error'})
+    end
+
+    local stats, identifier = getStats(src)
+    if not stats then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Statistiques indisponibles.', type='error'})
+    end
+
+    local reputation = stats.reputation or 0
+    if upgrade.reputation and reputation < upgrade.reputation then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Réputation insuffisante.', type='error'})
+    end
+
+    if upgrade.deliveries then
+        for organ, count in pairs(upgrade.deliveries) do
+            local delivered = stats.deliveries and (stats.deliveries[organ] or 0) or 0
+            if delivered < count then
+                local label = (Config.ItemDetails[organ] and Config.ItemDetails[organ].label) or organ
+                return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Livraisons insuffisantes: %s (%d/%d)'):format(label, delivered, count), type='error'})
+            end
+        end
+    end
+
+    local price = upgrade.price or 0
+    if price > 0 and xPlayer.getMoney() < price then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Pas assez d’argent pour l’amélioration.', type='error'})
+    end
+
+    if price > 0 then
+        xPlayer.removeMoney(price)
+    end
+
+    local removed = exports.ox_inventory:RemoveItem(src, fromVariant.item, 1)
+    if not removed then
+        if price > 0 then xPlayer.addMoney(price) end
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Impossible de retirer ton ancien scalpel.', type='error'})
+    end
+
+    local added = exports.ox_inventory:AddItem(src, toVariant.item, 1)
+    if not added then
+        exports.ox_inventory:AddItem(src, fromVariant.item, 1)
+        if price > 0 then xPlayer.addMoney(price) end
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Inventaire plein pour le nouveau scalpel.', type='error'})
+    end
+
+    stats.upgrades = stats.upgrades or {}
+    stats.upgrades[upgrade.to] = now()
+    saveStats(identifier)
+
+    TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Amélioration obtenue: %s'):format(toVariant.label or toVariant.item), type='success'})
+    sendWebhook('Scalpel amélioré', ('**Joueur:** %s\n**Amélioration:** %s -> %s'):format(GetPlayerName(src), fromVariant.item, toVariant.item), 5793266)
 end)
 
 RegisterNetEvent('outlaw_organ:sellOrgans', function()
@@ -273,6 +581,15 @@ RegisterNetEvent('outlaw_organ:sellOrgans', function()
 
     local total = 0
     local t = now()
+    local stats, identifier = getStats(src)
+    local multiplier, currentTier = 1.0, nil
+    if stats then
+        local nextTier
+        multiplier, currentTier, nextTier = calculatePriceMultiplier(stats.reputation or 0)
+    end
+    local saleSummary = { delivered = {}, repGain = 0, qualityPoints = 0, bestQuality = 0, items = 0 }
+    local baseGain = Config.Reputation and Config.Reputation.BaseGainPerItem or 0
+    local qualityWeight = Config.Reputation and Config.Reputation.QualityWeight or 0
 
     for name, data in pairs(Config.ItemDetails) do
         local slots = exports.ox_inventory:Search(src, 'slots', name) or {}
@@ -293,8 +610,19 @@ RegisterNetEvent('outlaw_organ:sellOrgans', function()
                 end
             end
             local final = math.floor(price * (q / 100))
+            final = math.floor(final * (multiplier or 1.0))
             total = total + final
             exports.ox_inventory:RemoveItem(src, name, 1, nil, slot.slot)
+
+            saleSummary.items = saleSummary.items + 1
+            saleSummary.qualityPoints = saleSummary.qualityPoints + q
+            if q > (saleSummary.bestQuality or 0) then saleSummary.bestQuality = q end
+            saleSummary.delivered[name] = (saleSummary.delivered[name] or 0) + 1
+
+            local repValue = (Config.ItemDetails[name] and Config.ItemDetails[name].rep) or 0
+            local gain = baseGain + (repValue * qualityWeight * (q / 100))
+            gain = math.floor(math.max(0, gain))
+            if gain > 0 then saleSummary.repGain = saleSummary.repGain + gain end
         end
     end
 
@@ -303,7 +631,30 @@ RegisterNetEvent('outlaw_organ:sellOrgans', function()
     end
 
     if Config.UseBlackMoney then xPlayer.addAccountMoney('black_money', total) else xPlayer.addMoney(total) end
-    TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Vente: $%s'):format(total), type='success'})
+    if stats then
+        stats.deliveries = stats.deliveries or {}
+        for item, count in pairs(saleSummary.delivered) do
+            stats.deliveries[item] = (stats.deliveries[item] or 0) + count
+        end
+        stats.totalQuality = (stats.totalQuality or 0) + (saleSummary.qualityPoints or 0)
+        if saleSummary.bestQuality and saleSummary.bestQuality > (stats.bestQuality or 0) then
+            stats.bestQuality = saleSummary.bestQuality
+        end
+        stats.sales = (stats.sales or 0) + (saleSummary.items or 0)
+        if saleSummary.repGain and saleSummary.repGain > 0 then
+            stats.reputation = clampReputation((stats.reputation or 0) + saleSummary.repGain)
+        end
+        saveStats(identifier)
+    end
+
+    local msg = ('Vente: $%s'):format(total)
+    if multiplier and multiplier > 1.0 then
+        msg = msg .. (' | Bonus x%.2f'):format(multiplier)
+    end
+    if saleSummary.repGain and saleSummary.repGain > 0 then
+        msg = msg .. (' | Réputation +%d'):format(saleSummary.repGain)
+    end
+    TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=msg, type='success'})
     sendWebhook('Vente d’organes', ('**Joueur:** %s\n**Montant:** $%s'):format(GetPlayerName(src), total), 15844367)
 end)
 
@@ -312,10 +663,31 @@ RegisterNetEvent('outlaw_organ:buyTool', function(kind)
     local xPlayer = ESX.GetPlayerFromId(src)
     if not xPlayer then return end
 
-    local item, price = nil, 0
-    if kind == 'basic' then item = Config.Scalpel.basic; price = 250
-    elseif kind == 'pro' then item = Config.Scalpel.pro; price = 1500
-    elseif kind == 'kit' then item = Config.Scalpel.kit; price = 400 end
+    local item, price, label
+    if kind == 'kit' then
+        item = Config.Scalpel.kit
+        price = 400
+        label = 'Kit chirurgical'
+    else
+        local variants = Config.Scalpel and Config.Scalpel.variants or {}
+        local variant = variants and variants[kind] or nil
+        if variant then
+            if variant.buyPrice and variant.buyPrice > 0 then
+                local stats = select(1, getStats(src))
+                if variant.reputation and variant.reputation > 0 then
+                    local rep = stats and (stats.reputation or 0) or 0
+                    if rep < variant.reputation then
+                        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Réputation insuffisante pour cet achat.', type='error'})
+                    end
+                end
+                item = variant.item
+                price = variant.buyPrice
+                label = variant.label or variant.item
+            else
+                return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Cet outil doit être débloqué via amélioration.', type='error'})
+            end
+        end
+    end
 
     if not item or item == '' then
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Indisponible.', type='error'})
@@ -331,7 +703,7 @@ RegisterNetEvent('outlaw_organ:buyTool', function(kind)
     end
 
     xPlayer.removeMoney(price)
-    TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Achat: %s'):format(item), type='success'})
+    TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Achat: %s'):format(label or item), type='success'})
 end)
 
 RegisterNetEvent('outlaw_organ:witnessDispatch', function(coords)
