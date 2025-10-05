@@ -15,6 +15,13 @@ local function getIdentifier(src)
     return identifier
 end
 
+local function clampReputation(value)
+    if not value then return 0 end
+    local max = Config.Reputation and Config.Reputation.Max
+    if max and max > 0 then return math.min(value, max) end
+    return value
+end
+
 local function loadStats(identifier)
     if not identifier then return nil end
     if statsCache[identifier] then return statsCache[identifier] end
@@ -48,13 +55,6 @@ local function getStats(src)
     if not identifier then return nil, nil end
     local data = loadStats(identifier)
     return data, identifier
-end
-
-local function clampReputation(value)
-    if not value then return 0 end
-    local max = Config.Reputation and Config.Reputation.Max
-    if max and max > 0 then return math.min(value, max) end
-    return value
 end
 
 local sortedTiers
