@@ -3,8 +3,200 @@ local ESX = exports['es_extended']:getSharedObject()
 local missions = {} -- [src] = { netId=..., coords=vector3, startedAt=os.time(), harvested=0, given={}, canSecond=false, lastDispatchAt=0 }
 local heat = {}     -- [src] = { value=0, updatedAt=os.time() }
 local invOpen = {}  -- [src] = true/false
+local profiles = {} -- [src] = profile table persisted in DB
+
+local defaultDelivered = {}
+for name, _ in pairs(Config.ItemDetails) do
+    defaultDelivered[name] = 0
+end
 
 local function now() return os.time() end
+
+local function cloneDelivered()
+    local copy = {}
+    for k, v in pairs(defaultDelivered) do copy[k] = v end
+    return copy
+end
+
+local function getIdentifier(src)
+    local xPlayer = ESX.GetPlayerFromId(src)
+    if not xPlayer then return nil end
+    return xPlayer.getIdentifier()
+end
+
+local function getReputationTier(points)
+    local tiers = (Config.Reputation and Config.Reputation.Tiers) or {}
+    if #tiers == 0 then return 1, { threshold = 0, label = 'Novice', bonus = 0.0 } end
+    local idx, current = 1, tiers[1]
+    for i, tier in ipairs(tiers) do
+        if points >= (tier.threshold or 0) then
+            idx = i
+            current = tier
+        else
+            break
+        end
+    end
+    local nextTier = tiers[idx + 1]
+    return idx, current, nextTier
+end
+
+local function getPriceMultiplier(points)
+    local _, tier = getReputationTier(points or 0)
+    return 1.0 + (tier.bonus or 0.0)
+end
+
+local function ensureProfile(src)
+    if not src then return nil end
+    local cached = profiles[src]
+    if cached then return cached end
+
+    local identifier = getIdentifier(src)
+    if not identifier then return nil end
+
+    local row = MySQL.single.await('SELECT * FROM outlaw_organ_profiles WHERE identifier = ?', {identifier})
+    if not row then
+        local delivered = json.encode(cloneDelivered())
+        MySQL.insert.await('INSERT INTO outlaw_organ_profiles (identifier, reputation, contracts, total_quality, delivered, upgrades) VALUES (?, ?, ?, ?, ?, ?)', {
+            identifier, 0, 0, 0, delivered, json.encode({})
+        })
+        row = {
+            reputation = 0,
+            contracts = 0,
+            total_quality = 0,
+            delivered = delivered,
+            upgrades = json.encode({})
+        }
+    end
+
+    local delivered = json.decode(row.delivered or '{}') or {}
+    for name, defaultVal in pairs(defaultDelivered) do
+        if delivered[name] == nil then delivered[name] = defaultVal end
+    end
+
+    local upgrades = json.decode(row.upgrades or '{}') or {}
+    if type(upgrades) ~= 'table' then upgrades = {} end
+
+    cached = {
+        identifier = identifier,
+        reputation = row.reputation or 0,
+        totalQuality = row.total_quality or 0,
+        contracts = row.contracts or 0,
+        delivered = delivered,
+        upgrades = upgrades
+    }
+    profiles[src] = cached
+    return cached
+end
+
+local function saveProfile(src)
+    local profile = profiles[src]
+    if not profile or not profile.identifier then return end
+    MySQL.update.await('UPDATE outlaw_organ_profiles SET reputation = ?, contracts = ?, total_quality = ?, delivered = ?, upgrades = ? WHERE identifier = ?', {
+        profile.reputation or 0,
+        profile.contracts or 0,
+        profile.totalQuality or 0,
+        json.encode(profile.delivered or cloneDelivered()),
+        json.encode(profile.upgrades or {}),
+        profile.identifier
+    })
+end
+
+local function getUpgradeBonuses(profile, scalpelType)
+    if not profile or not scalpelType then return 0, 0 end
+    local tiers = Config.Scalpel.Upgrades and Config.Scalpel.Upgrades[scalpelType]
+    if not tiers or #tiers == 0 then return 0, 0 end
+    local current = (profile.upgrades and profile.upgrades[scalpelType]) or 0
+    local bonusQ, bonusTTL = 0, 0
+    for i = 1, math.min(current, #tiers) do
+        local data = tiers[i]
+        bonusQ = bonusQ + (data.bonusQuality or 0)
+        bonusTTL = bonusTTL + (data.bonusTTL or 0)
+    end
+    return bonusQ, bonusTTL
+end
+
+local function hasDeliveredRequirements(profile, req)
+    if not req then return true end
+    for item, count in pairs(req) do
+        if (profile.delivered[item] or 0) < count then
+            return false
+        end
+    end
+    return true
+end
+
+local function buildUpgradeState(profile)
+    local data = {}
+    for kind, tiers in pairs(Config.Scalpel.Upgrades or {}) do
+        local entry = { current = (profile and profile.upgrades and profile.upgrades[kind]) or 0, tiers = {} }
+        for index, tier in ipairs(tiers) do
+            entry.tiers[index] = {
+                index = index,
+                id = tier.id,
+                label = tier.label,
+                description = tier.description,
+                reputation = tier.reputation or 0,
+                organs = tier.organs or {},
+                bonusQuality = tier.bonusQuality or 0,
+                bonusTTL = tier.bonusTTL or 0
+            }
+        end
+        data[kind] = entry
+    end
+    return data
+end
+
+lib.callback.register('outlaw_organ:getDealerData', function(src)
+    local profile = ensureProfile(src)
+    if not profile then return nil end
+    local tierIndex, tierData, nextTier = getReputationTier(profile.reputation or 0)
+    local delivered = cloneDelivered()
+    for item, _ in pairs(delivered) do
+        delivered[item] = profile.delivered[item] or 0
+    end
+    local nextData = nil
+    if nextTier then
+        nextData = {
+            label = nextTier.label,
+            threshold = nextTier.threshold or 0,
+            remaining = math.max(0, (nextTier.threshold or 0) - (profile.reputation or 0))
+        }
+    end
+    return {
+        reputation = profile.reputation or 0,
+        totalQuality = profile.totalQuality or 0,
+        contracts = profile.contracts or 0,
+        tier = tierIndex,
+        tierLabel = tierData.label,
+        multiplier = getPriceMultiplier(profile.reputation or 0),
+        nextTier = nextData,
+        delivered = delivered,
+        upgrades = buildUpgradeState(profile),
+        scalpelPrices = Config.Scalpel.Prices or {},
+        itemDetails = Config.ItemDetails
+    }
+end)
+
+lib.callback.register('outlaw_organ:upgradeScalpel', function(src, kind)
+    local profile = ensureProfile(src)
+    if not profile then return false, 'Profil introuvable' end
+    local tiers = Config.Scalpel.Upgrades and Config.Scalpel.Upgrades[kind]
+    if not tiers or #tiers == 0 then return false, 'Amélioration indisponible' end
+    profile.upgrades = profile.upgrades or {}
+    local current = profile.upgrades[kind] or 0
+    local nextTier = tiers[current + 1]
+    if not nextTier then return false, 'Déjà au niveau maximal' end
+    if (profile.reputation or 0) < (nextTier.reputation or 0) then
+        return false, 'Réputation insuffisante'
+    end
+    if not hasDeliveredRequirements(profile, nextTier.organs) then
+        return false, 'Livraisons insuffisantes'
+    end
+
+    profile.upgrades[kind] = current + 1
+    saveProfile(src)
+    return true, nextTier.label
+end)
 
 local function updateHeat(src, delta)
     heat[src] = heat[src] or { value = 0, updatedAt = now() }
@@ -103,11 +295,15 @@ local function baseQualityFromCause(causeHash)
     return Q.other
 end
 
-local function pickOrganName(exclude)
+local function pickOrganName(exclude, profile)
     local pool, sum = {}, 0
     exclude = exclude or {}
+    local tierIndex = 1
+    if profile then tierIndex = select(1, getReputationTier(profile.reputation or 0)) end
     for k, v in pairs(Config.ItemDetails) do
-        if not exclude[k] or (Config.ItemDetails[k].limit or 1) > (exclude[k] or 0) then
+        local limit = Config.ItemDetails[k].limit or 1
+        local neededTier = Config.ItemDetails[k].repTier or 1
+        if tierIndex >= neededTier and ((exclude[k] or 0) < limit) then
             local price = math.max(1, tonumber(v.price) or 1)
             local w = math.floor(1000 / price)
             if w < 1 then w = 1 end
@@ -188,6 +384,8 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Tu as besoin d’un %s.'):format(Config.Scalpel.basic), type='error'})
     end
 
+    local profile = ensureProfile(src)
+
     if mission.harvested >= 1 and not mission.canSecond then
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Plus rien à prélever sur ce corps.', type='error'})
     end
@@ -198,8 +396,11 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
         mission.canSecond = canSecond
     end
 
+    local bonusQuality, bonusTTL = getUpgradeBonuses(profile, scalpelType)
+
     local base = 80 + baseQualityFromCause(causeHash or 0)
     if scalpelType == 'pro' then base = base + (Config.Scalpel.proQualityBonus or 10) end
+    base = base + bonusQuality
     base = math.max(20, math.min(100, base))
 
     local ttl = Config.OrganDecaySeconds or 600
@@ -209,9 +410,10 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
         ttl = ttl + (Config.Scalpel.kitExtraSeconds or 180)
         removeItem(src, Config.Scalpel.kit, 1)
     end
+    ttl = ttl + bonusTTL
 
     mission.given = mission.given or {}
-    local organ = pickOrganName(mission.given)
+    local organ = pickOrganName(mission.given, profile)
 
     local born = now()
     local expires = born + ttl
@@ -260,6 +462,10 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
             TriggerClientEvent('outlaw_organ:clearTarget', src)
             missions[src].netId = nil
             missions[src].startedAt = now()
+            if profile then
+                profile.contracts = (profile.contracts or 0) + 1
+                saveProfile(src)
+            end
         end
 
         TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Récolte: %s (%d%%)'):format(organ, base), type='success'})
@@ -271,8 +477,13 @@ RegisterNetEvent('outlaw_organ:sellOrgans', function()
     local xPlayer = ESX.GetPlayerFromId(src)
     if not xPlayer then return end
 
+    local profile = ensureProfile(src)
+    local oldTier = profile and select(1, getReputationTier(profile.reputation or 0)) or 1
+    local multiplier = profile and getPriceMultiplier(profile.reputation or 0) or 1.0
+
     local total = 0
     local t = now()
+    local qualityEarned = 0
 
     for name, data in pairs(Config.ItemDetails) do
         local slots = exports.ox_inventory:Search(src, 'slots', name) or {}
@@ -292,14 +503,30 @@ RegisterNetEvent('outlaw_organ:sellOrgans', function()
                     q = math.max(10, math.min(100, math.floor(quality0 * ratio)))
                 end
             end
-            local final = math.floor(price * (q / 100))
+            local final = math.floor(price * multiplier * (q / 100))
             total = total + final
+            qualityEarned = qualityEarned + q
+            if profile then
+                profile.delivered[name] = (profile.delivered[name] or 0) + 1
+            end
             exports.ox_inventory:RemoveItem(src, name, 1, nil, slot.slot)
         end
     end
 
     if total <= 0 then
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Tu n’as rien à vendre.', type='error'})
+    end
+
+    if profile then
+        local qualityPoints = math.floor(qualityEarned * (Config.Reputation.PointsPerQuality or 1.0))
+        profile.totalQuality = (profile.totalQuality or 0) + qualityEarned
+        profile.reputation = (profile.reputation or 0) + qualityPoints
+        saveProfile(src)
+        local newTier = select(1, getReputationTier(profile.reputation or 0))
+        if newTier > oldTier then
+            local _, tierData = getReputationTier(profile.reputation or 0)
+            TriggerClientEvent('ox_lib:notify', src, {title='Réputation', description=('Nouveau rang: %s (+%d%% prix)'):format(tierData.label, math.floor((tierData.bonus or 0) * 100)), type='success'})
+        end
     end
 
     if Config.UseBlackMoney then xPlayer.addAccountMoney('black_money', total) else xPlayer.addMoney(total) end
@@ -313,9 +540,9 @@ RegisterNetEvent('outlaw_organ:buyTool', function(kind)
     if not xPlayer then return end
 
     local item, price = nil, 0
-    if kind == 'basic' then item = Config.Scalpel.basic; price = 250
-    elseif kind == 'pro' then item = Config.Scalpel.pro; price = 1500
-    elseif kind == 'kit' then item = Config.Scalpel.kit; price = 400 end
+    if kind == 'basic' then item = Config.Scalpel.basic; price = (Config.Scalpel.Prices and Config.Scalpel.Prices.basic) or 250
+    elseif kind == 'pro' then item = Config.Scalpel.pro; price = (Config.Scalpel.Prices and Config.Scalpel.Prices.pro) or 1500
+    elseif kind == 'kit' then item = Config.Scalpel.kit; price = (Config.Scalpel.Prices and Config.Scalpel.Prices.kit) or 400 end
 
     if not item or item == '' then
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Indisponible.', type='error'})
@@ -340,11 +567,17 @@ RegisterNetEvent('outlaw_organ:witnessDispatch', function(coords)
     sendWebhook('Témoin', ('Activité suspecte repérée en (%.1f, %.1f, %.1f)'):format(coords.x, coords.y, coords.z), 15158332)
 end)
 
+RegisterNetEvent('esx:playerLoaded', function(playerId, xPlayer)
+    ensureProfile(playerId)
+end)
+
 AddEventHandler('playerDropped', function()
     local src = source
+    if profiles[src] then saveProfile(src) end
     missions[src] = nil
     heat[src] = nil
     invOpen[src] = nil
+    profiles[src] = nil
 end)
 
 RegisterCommand('organreset', function(src, args, raw)

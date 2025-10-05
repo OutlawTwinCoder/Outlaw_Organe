@@ -32,13 +32,13 @@ Config.SpawnZones = {
 }
 
 Config.ItemDetails = {
-    rein  = { price = 400, limit = 1 },
-    crane = { price = 150, limit = 1 },
-    pied  = { price = 200, limit = 1 },
-    yeux  = { price = 250, limit = 2 },
-    organe= { price = 350, limit = 1 },
-    coeur = { price = 800, limit = 1 },
-    os    = { price = 20,  limit = 4 },
+    rein  = { label = 'Rein',    price = 400, limit = 1 },
+    crane = { label = 'Crâne',   price = 150, limit = 1 },
+    pied  = { label = 'Pied',    price = 200, limit = 1 },
+    yeux  = { label = 'Yeux',    price = 250, limit = 2 },
+    organe= { label = 'Organe',  price = 350, limit = 1 },
+    coeur = { label = 'Cœur',    price = 800, limit = 1, repTier = 3 },
+    os    = { label = 'Os',      price = 20,  limit = 4 },
 }
 
 Config.MissionCooldown = 300
@@ -48,7 +48,36 @@ Config.Scalpel = {
     pro   = 'scalpel_pro',
     kit   = 'surgery_kit',
     proQualityBonus = 10,
-    kitExtraSeconds  = 180
+    kitExtraSeconds  = 180,
+    Prices = {
+        basic = 250,
+        pro   = 1500,
+        kit   = 400
+    },
+    Upgrades = {
+        basic = {
+            { id = 'edge_plus',   label = 'Lame affûtée',      description = 'Augmente légèrement la qualité des prélèvements.',
+              reputation = 200, organs = { crane = 10, yeux = 10 }, bonusQuality = 5 },
+            { id = 'edge_master', label = 'Incision chirurgicale', description = 'Qualité supérieure et conservation améliorée.',
+              reputation = 450, organs = { rein = 12, organe = 8 }, bonusQuality = 8, bonusTTL = 60 }
+        },
+        pro = {
+            { id = 'precision',   label = 'Précision clinique', description = 'Boost de qualité lors des opérations délicates.',
+              reputation = 600, organs = { coeur = 3, yeux = 12 }, bonusQuality = 10 },
+            { id = 'cryolame',    label = 'Cryo-lame',          description = 'Qualité maximale et durée de conservation prolongée.',
+              reputation = 950, organs = { rein = 20, coeur = 5 }, bonusQuality = 12, bonusTTL = 120 }
+        }
+    }
+}
+
+Config.Reputation = {
+    PointsPerQuality = 1.0,
+    Tiers = {
+        { threshold = 0,   label = 'Novice',       bonus = 0.0 },
+        { threshold = 250, label = 'Fournisseur',  bonus = 0.08 },
+        { threshold = 600, label = 'Spécialiste',  bonus = 0.15 },
+        { threshold = 1100,label = 'Légende',      bonus = 0.22 }
+    }
 }
 
 -- Base TTL (seconds) before organ rots (without any bonus)
