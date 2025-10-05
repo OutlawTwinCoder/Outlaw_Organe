@@ -5,6 +5,7 @@ local heat = {}     -- [src] = { value=0, updatedAt=os.time() }
 local invOpen = {}  -- [src] = true/false
 local statsCache = {} -- [identifier] = stats table
 
+local getMissionContracts
 local getMissionEntry
 local evaluateMissionRequirements
 local organUnlockedForPlayer
@@ -867,7 +868,7 @@ buildDealerSnapshot = function(src, stats)
     }
 end
 
-local function getMissionContracts()
+getMissionContracts = function()
     return (Config.MissionBoard and Config.MissionBoard.Contracts) or {}
 end
 
