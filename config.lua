@@ -32,13 +32,13 @@ Config.SpawnZones = {
 }
 
 Config.ItemDetails = {
-    rein  = { price = 400, limit = 1 },
-    crane = { price = 150, limit = 1 },
-    pied  = { price = 200, limit = 1 },
-    yeux  = { price = 250, limit = 2 },
-    organe= { price = 350, limit = 1 },
-    coeur = { price = 800, limit = 1 },
-    os    = { price = 20,  limit = 4 },
+    rein  = { label = 'Rein',    price = 400, limit = 1 },
+    crane = { label = 'Crâne',   price = 150, limit = 1 },
+    pied  = { label = 'Pied',    price = 200, limit = 1 },
+    yeux  = { label = 'Yeux',    price = 250, limit = 2 },
+    organe= { label = 'Organe',  price = 350, limit = 1 },
+    coeur = { label = 'Cœur',    price = 800, limit = 1 },
+    os    = { label = 'Os',      price = 20,  limit = 4 },
 }
 
 Config.MissionCooldown = 300
@@ -49,6 +49,51 @@ Config.Scalpel = {
     kit   = 'surgery_kit',
     proQualityBonus = 10,
     kitExtraSeconds  = 180
+}
+
+Config.ScalpelTiers = {
+    basic = {
+        item = 'scalpel',
+        label = 'Scalpel (basique)',
+        price = 250,
+        reputation = 0,
+        requires = {},
+        qualityBonus = 0,
+        secondHarvestChance = 0.0,
+        description = 'Outil standard fourni sans condition.'
+    },
+    pro = {
+        item = 'scalpel_pro',
+        label = 'Scalpel (pro)',
+        price = 1500,
+        reputation = 35,
+        requires = { rein = 8, yeux = 4 },
+        qualityBonus = 10,
+        secondHarvestChance = Config.SecondHarvestChance or 0.17,
+        description = 'Améliore la qualité des prélèvements et ouvre la voie aux doubles récoltes.'
+    },
+    honed = {
+        item = 'scalpel_honed',
+        label = 'Scalpel affûté',
+        price = 3200,
+        reputation = 120,
+        requires = { rein = 20, crane = 10, coeur = 3 },
+        qualityBonus = 18,
+        secondHarvestChance = 0.28,
+        description = 'Version affûtée du scalpel, réservée aux vétérans au sang-froid.'
+    }
+}
+
+Config.Reputation = {
+    Max = 500,
+    PriceBonusPerPoint = 0.0025, -- +0.25% par point
+    MaxPriceBonus = 0.6,         -- Bonus max de +60%
+    SaleQualityWeight = 0.08,    -- Influence de la qualité sur le gain de réput.
+    SaleMinQuality = 40,         -- Qualité minimale pour générer de la réput.
+    ContractBonus = 6,           -- Bonus fixe par contrat terminé
+    RareOrders = {
+        coeur = 110
+    }
 }
 
 -- Base TTL (seconds) before organ rots (without any bonus)

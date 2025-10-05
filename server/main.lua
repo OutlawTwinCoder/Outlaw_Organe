@@ -3,6 +3,42 @@ local ESX = exports['es_extended']:getSharedObject()
 local missions = {} -- [src] = { netId=..., coords=vector3, startedAt=os.time(), harvested=0, given={}, canSecond=false, lastDispatchAt=0 }
 local heat = {}     -- [src] = { value=0, updatedAt=os.time() }
 local invOpen = {}  -- [src] = true/false
+local playerIdentifiers = {} -- [src] = identifier
+local statsCache = {} -- [identifier] = { reputation=0, contracts=0, deliveries={}, unlocks={} }
+
+local function deepcopy(obj)
+    if type(obj) ~= 'table' then return obj end
+    local res = {}
+    for k, v in pairs(obj) do res[k] = deepcopy(v) end
+    return res
+end
+
+local scalpelTiersOrdered, scalpelTierIndex = {}, {}
+do
+    for name, data in pairs(Config.ScalpelTiers or {}) do
+        if data.item then
+            local entry = {
+                name = name,
+                item = data.item,
+                label = data.label or name,
+                price = data.price or 0,
+                reputation = data.reputation or 0,
+                requires = deepcopy(data.requires or {}),
+                qualityBonus = data.qualityBonus or 0,
+                secondHarvestChance = data.secondHarvestChance or 0,
+                description = data.description or ''
+            }
+            table.insert(scalpelTiersOrdered, entry)
+            scalpelTierIndex[name] = entry
+        end
+    end
+    table.sort(scalpelTiersOrdered, function(a, b)
+        if (a.qualityBonus or 0) == (b.qualityBonus or 0) then
+            return (a.price or 0) < (b.price or 0)
+        end
+        return (a.qualityBonus or 0) < (b.qualityBonus or 0)
+    end)
+end
 
 local function now() return os.time() end
 
@@ -35,6 +71,126 @@ local function policeDispatch(coords, reason)
     end
 end
 
+local function getIdentifier(src)
+    if playerIdentifiers[src] then return playerIdentifiers[src] end
+    local xPlayer = ESX.GetPlayerFromId(src)
+    if not xPlayer then return nil end
+    local identifier = xPlayer.getIdentifier()
+    if identifier then playerIdentifiers[src] = identifier end
+    return identifier
+end
+
+local function ensureStats(src)
+    local identifier = getIdentifier(src)
+    if not identifier then return nil end
+    if statsCache[identifier] then return statsCache[identifier], identifier end
+
+    local row = MySQL.single.await('SELECT reputation, contracts, deliveries, unlocks FROM outlaw_organ_stats WHERE identifier = ?', { identifier })
+    local stats
+    if row then
+        stats = {
+            reputation = tonumber(row.reputation) or 0,
+            contracts = tonumber(row.contracts) or 0,
+            deliveries = (row.deliveries and row.deliveries ~= '' and json.decode(row.deliveries)) or {},
+            unlocks = (row.unlocks and row.unlocks ~= '' and json.decode(row.unlocks)) or {}
+        }
+    else
+        stats = { reputation = 0, contracts = 0, deliveries = {}, unlocks = {} }
+        MySQL.insert.await('INSERT INTO outlaw_organ_stats (identifier, reputation, contracts, deliveries, unlocks) VALUES (?, ?, ?, ?, ?)', {
+            identifier, 0, 0, json.encode(stats.deliveries), json.encode(stats.unlocks)
+        })
+    end
+
+    stats.deliveries = stats.deliveries or {}
+    stats.unlocks = stats.unlocks or {}
+    stats.unlocks.basic = true
+    statsCache[identifier] = stats
+    return stats, identifier
+end
+
+local function saveStats(identifier)
+    if not identifier then return end
+    local stats = statsCache[identifier]
+    if not stats then return end
+    MySQL.update.await('UPDATE outlaw_organ_stats SET reputation = ?, contracts = ?, deliveries = ?, unlocks = ? WHERE identifier = ?', {
+        math.floor(stats.reputation or 0),
+        math.floor(stats.contracts or 0),
+        json.encode(stats.deliveries or {}),
+        json.encode(stats.unlocks or {}),
+        identifier
+    })
+end
+
+local function getPriceMultiplier(rep)
+    local cfg = Config.Reputation or {}
+    local perPoint = cfg.PriceBonusPerPoint or 0
+    local maxBonus = cfg.MaxPriceBonus or 0.5
+    local bonus = math.max(0.0, math.min(maxBonus, (rep or 0) * perPoint))
+    return 1.0 + bonus, bonus
+end
+
+local function addReputation(identifier, amount)
+    if not identifier or not amount or amount == 0 then return end
+    local stats = statsCache[identifier]
+    if not stats then return end
+    local cfg = Config.Reputation or {}
+    local maxRep = cfg.Max or 500
+    local rep = (stats.reputation or 0) + amount
+    if rep < 0 then rep = 0 end
+    if maxRep and rep > maxRep then rep = maxRep end
+    stats.reputation = math.floor(rep)
+end
+
+local function addContract(identifier)
+    if not identifier then return end
+    local stats = statsCache[identifier]
+    if not stats then return end
+    stats.contracts = math.floor((stats.contracts or 0) + 1)
+    local cfg = Config.Reputation or {}
+    if cfg.ContractBonus and cfg.ContractBonus > 0 then
+        addReputation(identifier, cfg.ContractBonus)
+    end
+end
+
+local function recordDelivery(identifier, item, amount)
+    if not identifier then return end
+    local stats = statsCache[identifier]
+    if not stats then return end
+    stats.deliveries = stats.deliveries or {}
+    stats.deliveries[item] = math.floor((stats.deliveries[item] or 0) + (amount or 1))
+end
+
+local function repGainFromQuality(quality)
+    local cfg = Config.Reputation or {}
+    local minQuality = cfg.SaleMinQuality or 40
+    if not quality or quality <= minQuality then return 0 end
+    local weight = cfg.SaleQualityWeight or 0.05
+    return math.max(0, math.floor((quality - minQuality) * weight))
+end
+
+local function deliveriesMeetRequirements(stats, requires)
+    local missing = {}
+    if not requires or not next(requires) then return true, missing end
+    for item, needed in pairs(requires) do
+        local have = (stats.deliveries or {})[item] or 0
+        if have < needed then
+            table.insert(missing, { item = item, have = have, need = needed })
+        end
+    end
+    return #missing == 0, missing
+end
+
+local function formatMissingList(missing)
+    if not missing or #missing == 0 then return '' end
+    local parts = {}
+    for _, info in ipairs(missing) do
+        local cfg = Config.ItemDetails[info.item]
+        local label = (cfg and (cfg.label or info.item)) or info.item
+        table.insert(parts, ('%s (%d/%d)'):format(label, info.have, info.need))
+    end
+    return table.concat(parts, ', ')
+end
+
 local function sendWebhook(title, description, color)
     if not Config.DiscordWebhook or Config.DiscordWebhook == 'REPLACE_ME' then return end
     local embed = {{
@@ -55,6 +211,7 @@ end
 
 RegisterNetEvent('outlaw_organ:startMission', function()
     local src = source
+    ensureStats(src)
     local remain = cooldownRemaining(src)
     if remain > 0 then
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Attends %ss avant une nouvelle mission.'):format(remain), type='error'})
@@ -77,9 +234,13 @@ local function removeItem(src, name, count) return exports.ox_inventory:RemoveIt
 local function hasItem(src, name) return countItem(src, name) > 0 end
 
 local function playerHasScalpel(src)
-    if Config.Scalpel and Config.Scalpel.basic and hasItem(src, Config.Scalpel.basic) then return 'basic' end
-    if Config.Scalpel and Config.Scalpel.pro and hasItem(src, Config.Scalpel.pro) then return 'pro' end
-    return false
+    for i = #scalpelTiersOrdered, 1, -1 do
+        local tier = scalpelTiersOrdered[i]
+        if tier.item and hasItem(src, tier.item) then
+            return tier
+        end
+    end
+    return nil
 end
 
 local function baseQualityFromCause(causeHash)
@@ -103,11 +264,17 @@ local function baseQualityFromCause(causeHash)
     return Q.other
 end
 
-local function pickOrganName(exclude)
+local function rareLocked(item, reputation)
+    local req = Config.Reputation and Config.Reputation.RareOrders and Config.Reputation.RareOrders[item]
+    if not req then return false end
+    return (reputation or 0) < req
+end
+
+local function pickOrganName(exclude, reputation)
     local pool, sum = {}, 0
     exclude = exclude or {}
     for k, v in pairs(Config.ItemDetails) do
-        if not exclude[k] or (Config.ItemDetails[k].limit or 1) > (exclude[k] or 0) then
+        if (not rareLocked(k, reputation)) and (not exclude[k] or (Config.ItemDetails[k].limit or 1) > (exclude[k] or 0)) then
             local price = math.max(1, tonumber(v.price) or 1)
             local w = math.floor(1000 / price)
             if w < 1 then w = 1 end
@@ -183,8 +350,13 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Tu es trop loin de la cible.', type='error'})
     end
 
-    local scalpelType = playerHasScalpel(src)
-    if not scalpelType then
+    local stats, identifier = ensureStats(src)
+    if not stats then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Progression vendeur indisponible.', type='error'})
+    end
+
+    local scalpelTier = playerHasScalpel(src)
+    if not scalpelTier then
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Tu as besoin d’un %s.'):format(Config.Scalpel.basic), type='error'})
     end
 
@@ -193,13 +365,14 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
     end
 
     if mission.harvested == 0 then
-        local canSecond = false
-        if scalpelType == 'pro' and math.random() < (Config.SecondHarvestChance or 0.15) then canSecond = true end
-        mission.canSecond = canSecond
+        local chance = scalpelTier.secondHarvestChance or 0
+        mission.canSecond = chance > 0 and math.random() < chance
     end
 
     local base = 80 + baseQualityFromCause(causeHash or 0)
-    if scalpelType == 'pro' then base = base + (Config.Scalpel.proQualityBonus or 10) end
+    if scalpelTier.qualityBonus and scalpelTier.qualityBonus ~= 0 then
+        base = base + scalpelTier.qualityBonus
+    end
     base = math.max(20, math.min(100, base))
 
     local ttl = Config.OrganDecaySeconds or 600
@@ -211,7 +384,7 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
     end
 
     mission.given = mission.given or {}
-    local organ = pickOrganName(mission.given)
+    local organ = pickOrganName(mission.given, stats.reputation or 0)
 
     local born = now()
     local expires = born + ttl
@@ -249,17 +422,14 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
 
         sendWebhook('Prélèvement', ('**Joueur:** %s\n**Item:** %s\n**Qualité:** %d%%\n**TTL:** %ss\n**Coords:** (%.1f, %.1f, %.1f)'):format(GetPlayerName(src), organ, metadata.quality, metadata.ttl, pedCoords.x, pedCoords.y, pedCoords.z), 5763719)
 
-        local done = false
-        if mission.harvested >= 1 and not mission.canSecond then
-            done = true
-        elseif mission.harvested >= 2 then
-            done = true
-        end
+        local done = (mission.harvested >= 1 and not mission.canSecond) or mission.harvested >= 2
 
         if done then
             TriggerClientEvent('outlaw_organ:clearTarget', src)
             missions[src].netId = nil
             missions[src].startedAt = now()
+            addContract(identifier)
+            saveStats(identifier)
         end
 
         TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Récolte: %s (%d%%)'):format(organ, base), type='success'})
@@ -271,8 +441,15 @@ RegisterNetEvent('outlaw_organ:sellOrgans', function()
     local xPlayer = ESX.GetPlayerFromId(src)
     if not xPlayer then return end
 
+    local stats, identifier = ensureStats(src)
+    if not stats then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Impossible de charger ta réputation.', type='error'})
+    end
+
     local total = 0
     local t = now()
+    local repGain = 0
+    local multiplier, bonus = getPriceMultiplier(stats.reputation or 0)
 
     for name, data in pairs(Config.ItemDetails) do
         local slots = exports.ox_inventory:Search(src, 'slots', name) or {}
@@ -292,9 +469,12 @@ RegisterNetEvent('outlaw_organ:sellOrgans', function()
                     q = math.max(10, math.min(100, math.floor(quality0 * ratio)))
                 end
             end
-            local final = math.floor(price * (q / 100))
+            local final = math.floor(price * (q / 100) * multiplier)
+            if final < 1 then final = 1 end
             total = total + final
             exports.ox_inventory:RemoveItem(src, name, 1, nil, slot.slot)
+            recordDelivery(identifier, name, 1)
+            repGain = repGain + repGainFromQuality(q)
         end
     end
 
@@ -303,7 +483,22 @@ RegisterNetEvent('outlaw_organ:sellOrgans', function()
     end
 
     if Config.UseBlackMoney then xPlayer.addAccountMoney('black_money', total) else xPlayer.addMoney(total) end
-    TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Vente: $%s'):format(total), type='success'})
+    local msg = ('Vente: $%s'):format(total)
+    if bonus and bonus > 0 then
+        msg = msg .. (' (bonus réputation +%d%%)'):format(math.floor(bonus * 100))
+    end
+    TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=msg, type='success'})
+
+    if repGain > 0 then
+        addReputation(identifier, repGain)
+    end
+
+    saveStats(identifier)
+
+    if repGain > 0 then
+        TriggerClientEvent('ox_lib:notify', src, {title='Réputation', description=('Tu gagnes %d de réputation (total: %d).'):format(repGain, stats.reputation or 0), type='inform'})
+    end
+
     sendWebhook('Vente d’organes', ('**Joueur:** %s\n**Montant:** $%s'):format(GetPlayerName(src), total), 15844367)
 end)
 
@@ -312,26 +507,59 @@ RegisterNetEvent('outlaw_organ:buyTool', function(kind)
     local xPlayer = ESX.GetPlayerFromId(src)
     if not xPlayer then return end
 
-    local item, price = nil, 0
-    if kind == 'basic' then item = Config.Scalpel.basic; price = 250
-    elseif kind == 'pro' then item = Config.Scalpel.pro; price = 1500
-    elseif kind == 'kit' then item = Config.Scalpel.kit; price = 400 end
+    if kind == 'kit' then
+        local item = Config.Scalpel.kit
+        if not item or item == '' then
+            return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Indisponible.', type='error'})
+        end
+        local price = 400
+        if xPlayer.getMoney() < price then
+            return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Pas assez d’argent.', type='error'})
+        end
+        local ok = exports.ox_inventory:AddItem(src, item, 1)
+        if not ok then
+            return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Inventaire plein.', type='error'})
+        end
+        xPlayer.removeMoney(price)
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Achat: %s'):format(item), type='success'})
+    end
 
-    if not item or item == '' then
+    local tier = scalpelTierIndex[kind]
+    if not tier then
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Indisponible.', type='error'})
     end
 
+    local stats, identifier = ensureStats(src)
+    if not stats then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Progression vendeur indisponible.', type='error'})
+    end
+
+    if (stats.reputation or 0) < (tier.reputation or 0) then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Réputation insuffisante (%d requise).'):format(tier.reputation or 0), type='error'})
+    end
+
+    local okReq, missing = deliveriesMeetRequirements(stats, tier.requires)
+    if not okReq then
+        local details = formatMissingList(missing)
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Livraisons insuffisantes: %s'):format(details), type='error'})
+    end
+
+    local price = tier.price or 0
     if xPlayer.getMoney() < price then
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Pas assez d’argent.', type='error'})
     end
 
-    local ok = exports.ox_inventory:AddItem(src, item, 1)
+    local ok = exports.ox_inventory:AddItem(src, tier.item, 1)
     if not ok then
         return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Inventaire plein.', type='error'})
     end
 
     xPlayer.removeMoney(price)
-    TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Achat: %s'):format(item), type='success'})
+    stats.unlocks = stats.unlocks or {}
+    stats.unlocks[kind] = true
+    saveStats(identifier)
+
+    TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Achat: %s'):format(tier.label or tier.item), type='success'})
 end)
 
 RegisterNetEvent('outlaw_organ:witnessDispatch', function(coords)
@@ -345,6 +573,11 @@ AddEventHandler('playerDropped', function()
     missions[src] = nil
     heat[src] = nil
     invOpen[src] = nil
+    local identifier = playerIdentifiers[src]
+    if identifier then
+        saveStats(identifier)
+        playerIdentifiers[src] = nil
+    end
 end)
 
 RegisterCommand('organreset', function(src, args, raw)
@@ -353,3 +586,88 @@ RegisterCommand('organreset', function(src, args, raw)
     TriggerClientEvent('outlaw_organ:clearTarget', src)
     TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Reset effectué.', type='success'})
 end, false)
+
+lib.callback.register('outlaw_organ:getDealerStats', function(source)
+    local stats = ensureStats(source)
+    if not stats then return nil end
+
+    local deliveries = {}
+    for name, data in pairs(Config.ItemDetails) do
+        local entry = {
+            name = name,
+            label = data.label or name,
+            count = (stats.deliveries or {})[name] or 0
+        }
+        table.insert(deliveries, entry)
+    end
+    table.sort(deliveries, function(a, b)
+        if a.count == b.count then
+            return a.label < b.label
+        end
+        return a.count > b.count
+    end)
+
+    local rep = stats.reputation or 0
+    local multiplier, bonus = getPriceMultiplier(rep)
+
+    local nextRare
+    if Config.Reputation and Config.Reputation.RareOrders then
+        for item, req in pairs(Config.Reputation.RareOrders) do
+            if rep < req and (not nextRare or req < nextRare.required) then
+                local cfg = Config.ItemDetails[item]
+                nextRare = {
+                    item = item,
+                    label = (cfg and (cfg.label or item)) or item,
+                    required = req
+                }
+            end
+        end
+    end
+
+    local tiers = {}
+    for _, tier in ipairs(scalpelTiersOrdered) do
+        local owned = tier.item and hasItem(source, tier.item)
+        local meetsRep = rep >= (tier.reputation or 0)
+        local okReq, missing = deliveriesMeetRequirements(stats, tier.requires)
+        local missingCopy = {}
+        if missing and #missing > 0 then
+            for _, info in ipairs(missing) do
+                table.insert(missingCopy, {
+                    item = info.item,
+                    need = info.need,
+                    have = info.have,
+                    label = (Config.ItemDetails[info.item] and (Config.ItemDetails[info.item].label or info.item)) or info.item
+                })
+            end
+        end
+        table.insert(tiers, {
+            name = tier.name,
+            label = tier.label,
+            description = tier.description,
+            price = tier.price,
+            reputation = tier.reputation,
+            requires = tier.requires,
+            owned = owned,
+            meetsRep = meetsRep,
+            available = meetsRep and okReq,
+            missing = missingCopy
+        })
+    end
+
+    return {
+        reputation = rep,
+        contracts = stats.contracts or 0,
+        priceMultiplier = multiplier,
+        priceBonus = bonus,
+        deliveries = deliveries,
+        nextRare = nextRare,
+        tiers = tiers
+    }
+end)
+
+AddEventHandler('onResourceStop', function(resName)
+    if resName ~= GetCurrentResourceName() then return end
+    for identifier, _ in pairs(statsCache) do
+        saveStats(identifier)
+    end
+end)

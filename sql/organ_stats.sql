@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS `outlaw_organ_stats` (
+  `identifier` VARCHAR(64) NOT NULL,
+  `reputation` INT NOT NULL DEFAULT 0,
+  `contracts` INT NOT NULL DEFAULT 0,
+  `deliveries` LONGTEXT DEFAULT NULL,
+  `unlocks` LONGTEXT DEFAULT NULL,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`identifier`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
