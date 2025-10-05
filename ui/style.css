@@ -23,8 +23,8 @@ body {
     font-family: "Segoe UI", "Roboto", "Helvetica Neue", sans-serif;
     background: transparent;
     color: var(--text-primary);
-    font-size: 15px;
-    line-height: 1.5;
+    font-size: 14px;
+    line-height: 1.45;
 }
 
 .hidden {
@@ -39,16 +39,16 @@ body {
     justify-content: center;
     background: var(--bg-overlay);
     backdrop-filter: blur(6px);
-    padding: 2vh 2vw;
+    padding: 1.5vh 1.5vw;
 }
 
 .panel {
-    width: min(1040px, 100%);
-    max-height: 88vh;
+    width: min(900px, 94vw);
+    max-height: 86vh;
     display: flex;
     flex-direction: column;
     background: var(--bg-panel);
-    border-radius: 20px;
+    border-radius: 18px;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
     border: 1px solid rgba(255, 255, 255, 0.04);
     overflow: hidden;
@@ -58,19 +58,19 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    padding: 22px 28px 16px;
+    padding: 18px 24px 14px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .panel-titles h1 {
     margin: 0;
-    font-size: 1.45rem;
+    font-size: 1.32rem;
     letter-spacing: 0.01em;
 }
 
 .panel-titles p {
     margin: 6px 0 0;
-    font-size: 0.88rem;
+    font-size: 0.82rem;
     color: var(--text-secondary);
 }
 
@@ -79,9 +79,9 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.12);
     color: var(--text-primary);
     border-radius: 999px;
-    width: 38px;
-    height: 38px;
-    font-size: 1.1rem;
+    width: 34px;
+    height: 34px;
+    font-size: 1rem;
     cursor: pointer;
     transition: all 120ms ease;
 }
@@ -95,17 +95,17 @@ body {
 .summary-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 16px;
-    padding: 0 28px 20px;
+    gap: 12px;
+    padding: 0 24px 18px;
 }
 
 .summary-card {
     background: var(--bg-card);
-    border-radius: 16px;
-    padding: 18px 20px;
+    border-radius: 14px;
+    padding: 16px 18px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -117,34 +117,34 @@ body {
 }
 
 .summary-title {
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: var(--text-secondary);
 }
 
 .summary-value {
-    font-size: 2.1rem;
+    font-size: 1.82rem;
     font-weight: 600;
     display: flex;
     align-items: baseline;
-    gap: 10px;
+    gap: 6px;
 }
 
 .summary-value span {
-    font-size: 0.95rem;
+    font-size: 0.88rem;
     color: var(--text-secondary);
     font-weight: 400;
 }
 
 .summary-meta {
-    font-size: 0.88rem;
+    font-size: 0.82rem;
     color: var(--text-secondary);
 }
 
 .progress-bar {
     position: relative;
-    height: 8px;
+    height: 6px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.07);
     overflow: hidden;
@@ -156,6 +156,25 @@ body {
     border-radius: inherit;
     background: linear-gradient(90deg, rgba(255, 77, 90, 0.85), rgba(255, 120, 96, 0.85));
     transition: width 160ms ease;
+}
+
+.summary-card--scalpel {
+    gap: 8px;
+}
+
+.summary-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+    margin-top: 2px;
+}
+
+.summary-actions .primary-button {
+    grid-column: 1 / -1;
+}
+
+.summary-actions .secondary-button {
+    justify-content: center;
 }
 
 .tag {
@@ -179,8 +198,8 @@ body {
 .tab-bar {
     display: flex;
     align-items: center;
-    padding: 0 22px;
-    gap: 12px;
+    padding: 0 20px;
+    gap: 10px;
 }
 
 .tab {
@@ -188,8 +207,8 @@ body {
     border: none;
     background: transparent;
     color: var(--text-secondary);
-    font-size: 0.9rem;
-    padding: 12px 6px;
+    font-size: 0.82rem;
+    padding: 10px 4px;
     cursor: pointer;
     border-bottom: 2px solid transparent;
     transition: all 140ms ease;
@@ -207,7 +226,7 @@ body {
 .tab-content {
     flex: 1;
     overflow-y: auto;
-    padding: 22px 28px 26px;
+    padding: 18px 24px 22px;
 }
 
 .tab-panel {
@@ -221,17 +240,17 @@ body {
 .panel-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 18px;
+    gap: 14px;
 }
 
 .card {
     background: var(--bg-card);
-    border-radius: 16px;
-    padding: 20px;
+    border-radius: 14px;
+    padding: 16px;
     border: 1px solid rgba(255, 255, 255, 0.04);
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
 }
 
 .card.wide {
@@ -241,20 +260,20 @@ body {
 
 .card h2 {
     margin: 0;
-    font-size: 1rem;
+    font-size: 0.95rem;
 }
 
 .stat-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
 }
 
 .stat-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 0.9rem;
+    font-size: 0.84rem;
     color: var(--text-secondary);
 }
 
@@ -266,9 +285,9 @@ body {
     background: linear-gradient(135deg, rgba(255, 77, 90, 0.92), rgba(255, 110, 104, 0.92));
     border: none;
     color: #fff;
-    border-radius: 14px;
-    padding: 11px 18px;
-    font-size: 0.9rem;
+    border-radius: 12px;
+    padding: 9px 14px;
+    font-size: 0.82rem;
     cursor: pointer;
     transition: transform 120ms ease, box-shadow 120ms ease;
 }
@@ -283,9 +302,9 @@ body {
     background: rgba(255, 255, 255, 0.08);
     border: none;
     color: var(--text-primary);
-    border-radius: 14px;
-    padding: 9px 16px;
-    font-size: 0.85rem;
+    border-radius: 12px;
+    padding: 8px 14px;
+    font-size: 0.8rem;
     cursor: pointer;
     transition: background 120ms ease;
 }
@@ -302,18 +321,18 @@ button:disabled {
 
 .list-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 18px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
 }
 
 .list-card {
     background: var(--bg-card);
-    border-radius: 16px;
-    padding: 18px 20px;
+    border-radius: 14px;
+    padding: 16px 18px;
     border: 1px solid rgba(255, 255, 255, 0.04);
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     position: relative;
 }
 
@@ -322,14 +341,14 @@ button:disabled {
 }
 
 .list-title {
-    font-size: 1rem;
+    font-size: 0.95rem;
     margin: 0;
 }
 
 .list-meta,
 .list-description {
     color: var(--text-secondary);
-    font-size: 0.88rem;
+    font-size: 0.8rem;
 }
 
 .list-meta.accent {
@@ -341,29 +360,31 @@ button:disabled {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .button-group {
     display: flex;
     gap: 8px;
+    flex-wrap: wrap;
 }
 
 .requirements {
     display: flex;
     flex-direction: column;
-    gap: 5px;
-    font-size: 0.84rem;
+    gap: 4px;
+    font-size: 0.78rem;
     color: var(--text-secondary);
 }
 
 .empty-placeholder {
     background: rgba(255, 255, 255, 0.04);
-    border-radius: 16px;
-    padding: 28px 22px;
+    border-radius: 14px;
+    padding: 24px 20px;
     text-align: center;
     color: var(--text-secondary);
-    font-size: 0.96rem;
+    font-size: 0.9rem;
 }
 
 @media (max-width: 900px) {

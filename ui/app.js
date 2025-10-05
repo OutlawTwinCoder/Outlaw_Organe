@@ -122,12 +122,30 @@ function renderSummary() {
             <div class="summary-value">${multiplier.toFixed(2)}<span>x</span></div>
             <div class="summary-meta">Appliqué sur les ventes au trafiquant.</div>
         </article>
-        <article class="summary-card">
+        <article class="summary-card summary-card--scalpel">
             <div class="summary-title">Scalpel actif</div>
             <div class="summary-value">${scalpel ? scalpel.label : 'Aucun'}${scalpel ? `<span>+${formatNumber(scalpel.bonusQuality || 0)} qualité</span>` : ''}</div>
             <div class="summary-meta">${scalpel ? `Chance double prélèvement: ${secondChance}%` : 'Achetez un scalpel pour améliorer vos récoltes.'}</div>
+            <div class="summary-actions">
+                <button class="primary-button" id="summary-sell" type="button">Vendre mon stock</button>
+                <button class="secondary-button" data-go-tab="deliveries" type="button">Livraisons</button>
+                <button class="secondary-button" data-go-tab="shop" type="button">Boutique</button>
+            </div>
         </article>
     `;
+
+    const sellBtn = summaryEl.querySelector('#summary-sell');
+    if (sellBtn) {
+        sellBtn.addEventListener('click', () => send('dealer_sell'));
+    }
+    summaryEl.querySelectorAll('[data-go-tab]').forEach((btn) => {
+        btn.addEventListener('click', (event) => {
+            const tab = event.currentTarget.getAttribute('data-go-tab');
+            state.tab = tab;
+            updateTabs();
+            renderActiveTab();
+        });
+    });
 }
 
 function renderOverview() {
@@ -167,25 +185,6 @@ function renderOverview() {
     `;
     overviewEl.appendChild(rareCard);
 
-    const actionsCard = document.createElement('article');
-    actionsCard.className = 'card wide';
-    actionsCard.innerHTML = `
-        <h2>Actions rapides</h2>
-        <p class="list-description">Vends ton stock actuel ou explore la boutique pour débloquer de nouveaux scalpels et consommables.</p>
-        <div class="list-footer">
-            <button class="primary-button" id="action-sell" type="button">Vendre mon stock</button>
-            <div class="button-group">
-                <button class="secondary-button" data-go-tab="deliveries" type="button">Livraisons</button>
-                <button class="secondary-button" data-go-tab="shop" type="button">Boutique</button>
-            </div>
-        </div>
-    `;
-    overviewEl.appendChild(actionsCard);
-
-    const sellBtn = document.getElementById('action-sell');
-    if (sellBtn) {
-        sellBtn.addEventListener('click', () => send('dealer_sell'));
-    }
     overviewEl.querySelectorAll('[data-go-tab]').forEach((btn) => {
         btn.addEventListener('click', (event) => {
             const tab = event.currentTarget.getAttribute('data-go-tab');
