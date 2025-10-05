@@ -30,6 +30,17 @@ function formatCurrency(value) {
     return '$' + numberFormat.format(Math.round(num));
 }
 
+function formatDuration(seconds) {
+    const total = Math.max(0, Math.floor(seconds || 0));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    if (hours > 0) {
+        return `${hours}h${String(minutes).padStart(2, '0')}m`;
+    }
+    return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
 function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
 }
@@ -108,8 +119,10 @@ function renderSummary() {
     const multiplier = Number(state.data.multiplier || 1);
     const scalpel = state.data.scalpel || null;
     const secondChance = scalpel ? Math.round((scalpel.secondChance || 0) * 100) : 0;
+    const missionInfo = state.data.mission || null;
 
-    summaryEl.innerHTML = `
+    const cards = [];
+    cards.push(`
         <article class="summary-card rep">
             <div class="summary-title">Réputation</div>
             <div class="summary-value">${formatNumber(reputation)}<span>RP</span></div>
@@ -117,11 +130,17 @@ function renderSummary() {
             <div class="progress-bar"><span style="width:${Math.round(progress * 100)}%"></span></div>
             <div class="summary-meta">${progressLabel}</div>
         </article>
+    `);
+
+    cards.push(`
         <article class="summary-card">
             <div class="summary-title">Bonus prix</div>
             <div class="summary-value">${multiplier.toFixed(2)}<span>x</span></div>
             <div class="summary-meta">Appliqué sur les ventes au trafiquant.</div>
         </article>
+    `);
+
+    cards.push(`
         <article class="summary-card summary-card--scalpel">
             <div class="summary-title">Scalpel actif</div>
             <div class="summary-value">${scalpel ? scalpel.label : 'Aucun'}${scalpel ? `<span>+${formatNumber(scalpel.bonusQuality || 0)} qualité</span>` : ''}</div>
@@ -132,11 +151,63 @@ function renderSummary() {
                 <button class="secondary-button" data-go-tab="shop" type="button">Boutique</button>
             </div>
         </article>
-    `;
+    `);
+
+    if (missionInfo) {
+        const unlockedCount = Number(missionInfo.unlockedCount || 0);
+        const totalContracts = Number(missionInfo.totalContracts || 0);
+        const activeMission = missionInfo.active || null;
+        const cooldown = Math.max(0, Number(missionInfo.cooldown || 0));
+        const nextUnlock = missionInfo.nextUnlock || null;
+        const statusLine = activeMission
+            ? `Active: ${activeMission.label}${activeMission.itemLabel ? ` • ${activeMission.itemLabel}` : ''}`
+            : 'Aucune mission active.';
+        let timerLine = cooldown > 0 ? `Cooldown: ${formatDuration(cooldown)}` : 'Prêt pour une nouvelle mission.';
+        if (activeMission && activeMission.remaining > 0) {
+            timerLine = `Temps restant: ${formatDuration(activeMission.remaining)}`;
+        }
+        const progressParts = [];
+        if (totalContracts > 0) {
+            progressParts.push(`${formatNumber(unlockedCount)}/${formatNumber(totalContracts)} débloqués`);
+        }
+        if (nextUnlock) {
+            progressParts.push(`${nextUnlock.label} (${Math.round((nextUnlock.progress || 0) * 100)}%)`);
+        }
+        const progressLine = progressParts.length ? progressParts.join(' • ') : 'Aucun contrat configuré.';
+        let primaryButton = '';
+        if (activeMission && activeMission.type === 'contract') {
+            const ready = Boolean(activeMission.ready);
+            const label = ready ? 'Terminer mission' : 'Mission spéciale';
+            primaryButton = `<button class="primary-button" id="summary-mission-finish" type="button" ${ready ? '' : 'disabled'}>${label}</button>`;
+        }
+
+        cards.push(`
+            <article class="summary-card summary-card--mission">
+                <div class="summary-title">Tableau des missions</div>
+                <div class="summary-meta">${statusLine}</div>
+                <div class="summary-meta">${timerLine}</div>
+                <div class="summary-meta">${progressLine}</div>
+                <div class="summary-actions">
+                    ${primaryButton}
+                    <button class="secondary-button" id="summary-mission-open" type="button">Voir le tableau</button>
+                </div>
+            </article>
+        `);
+    }
+
+    summaryEl.innerHTML = cards.join('');
 
     const sellBtn = summaryEl.querySelector('#summary-sell');
     if (sellBtn) {
         sellBtn.addEventListener('click', () => send('dealer_sell'));
+    }
+    const missionFinishBtn = summaryEl.querySelector('#summary-mission-finish');
+    if (missionFinishBtn) {
+        missionFinishBtn.addEventListener('click', () => send('dealer_finish_mission'));
+    }
+    const missionOpenBtn = summaryEl.querySelector('#summary-mission-open');
+    if (missionOpenBtn) {
+        missionOpenBtn.addEventListener('click', () => send('dealer_open_missions'));
     }
     summaryEl.querySelectorAll('[data-go-tab]').forEach((btn) => {
         btn.addEventListener('click', (event) => {
@@ -515,6 +586,13 @@ if (!isNui) {
                     { id: 'elite', label: 'Scalpel (élite)', price: 2800, reputation: 380, bonusQuality: 18, secondChance: 0.35, locked: true, owned: false }
                 ],
                 kit: { id: 'kit', label: 'Kit chirurgical', price: 400 }
+            },
+            mission: {
+                unlockedCount: 3,
+                totalContracts: 7,
+                cooldown: 0,
+                active: { label: 'Commande rénale', itemLabel: 'Rein', type: 'contract', remaining: 420, ready: false },
+                nextUnlock: { label: 'Commande cardiaque', progress: 0.45 }
             }
         };
         state.data = sampleData;

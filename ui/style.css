@@ -47,6 +47,7 @@ body {
     max-height: 82vh;
     display: flex;
     flex-direction: column;
+    min-height: 0;
     background: var(--bg-panel);
     border-radius: 16px;
     box-shadow: 0 20px 46px rgba(0, 0, 0, 0.24);
@@ -166,6 +167,19 @@ body {
     gap: 8px;
 }
 
+.summary-card--mission {
+    grid-column: span 2;
+    gap: 8px;
+}
+
+.summary-card--mission .summary-actions {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.summary-card--mission .summary-actions .primary-button {
+    grid-column: auto;
+}
+
 .summary-card--actions {
     gap: 8px;
 }
@@ -236,11 +250,14 @@ body {
     display: flex;
     flex-direction: column;
     padding: 12px 20px 16px;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .tab-content > .tab-panel {
     flex: 1;
     display: none;
+    min-height: 0;
 }
 
 .tab-panel.active {
@@ -336,8 +353,8 @@ button:disabled {
 
 .list-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+    gap: 8px;
     overflow-y: auto;
     padding-right: 4px;
     flex: 1;
@@ -355,17 +372,17 @@ button:disabled {
 .list-card {
     background: var(--bg-card);
     border-radius: 12px;
-    padding: 11px 13px;
+    padding: 9px 11px;
     border: 1px solid rgba(255, 255, 255, 0.04);
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 4px;
     position: relative;
 }
 
 .list-card--compact {
-    padding: 9px 12px;
-    gap: 4px;
+    padding: 8px 10px;
+    gap: 3px;
 }
 
 .list-card.locked {

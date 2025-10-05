@@ -63,6 +63,7 @@ Tu dois déclarer les items suivants dans `ox_inventory/data/items.lua` (ou fich
 - Chaque type de contrat (os, pieds, crânes, etc.) possède des prérequis en **livraisons cumulées** et en **réputation**.
 - Tant qu'un contrat n'est pas débloqué, l'organe correspondant ne peut pas apparaître dans les récoltes aléatoires.
 - Une fois un palier atteint, tu peux acheter un **contrat ciblé** (ex: « Commande rénale ») qui force l'organe obtenu et impose un délai (configurable) pour réussir.
+- Après prélèvement de l’organe demandé par un contrat ciblé, utilise l’action **Terminer mission** (depuis le dealer ou le tableau) pour valider la commande sans fermer l’interface.
 - Le menu affiche :
   - ta progression sur chaque contrat (barres et pourcentages) ;
   - les bonus de réputation accordés par les contrats spéciaux ;

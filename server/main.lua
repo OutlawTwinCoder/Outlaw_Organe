@@ -10,6 +10,8 @@ local evaluateMissionRequirements
 local organUnlockedForPlayer
 local buildMissionSnapshot
 local sendMissionSnapshot
+local completeMission
+local sendDealerSnapshot
 
 local function now() return os.time() end
 
@@ -139,6 +141,64 @@ local function cooldownRemaining(src)
     return remain > 0 and remain or 0
 end
 
+local function completeMission(src, stats)
+    local mission = missions[src]
+    if not mission then return end
+
+    local completion = now()
+    TriggerClientEvent('outlaw_organ:clearTarget', src)
+
+    local missionStart = mission.startedAt or completion
+    local contractId = mission.contractId
+    local bonusRep = mission.bonusReputation or 0
+
+    mission.netId = nil
+    mission.startedAt = completion
+    mission.active = false
+    mission.deadline = nil
+    mission.forcedOrgan = nil
+    mission.contractId = nil
+    mission.bonusReputation = nil
+    mission.readyToComplete = nil
+    mission.given = {}
+    mission.harvested = 0
+    mission.canSecond = false
+
+    local playerStats, identifier = getStats(src)
+    if stats then
+        playerStats = stats
+    end
+
+    if playerStats then
+        playerStats.contractsCompleted = (playerStats.contractsCompleted or 0) + 1
+        playerStats.lastContractAt = completion
+        if contractId then
+            playerStats.contractsByType = playerStats.contractsByType or {}
+            local history = playerStats.contractsByType[contractId] or {}
+            history.completed = (history.completed or 0) + 1
+            local duration = completion - missionStart
+            if duration < 0 then duration = 0 end
+            if not history.bestTime or duration < history.bestTime then
+                history.bestTime = duration
+            end
+            playerStats.contractsByType[contractId] = history
+            if bonusRep and bonusRep > 0 then
+                playerStats.reputation = clampReputation((playerStats.reputation or 0) + bonusRep)
+            end
+        end
+        if Config.Reputation and Config.Reputation.ContractBonus then
+            playerStats.reputation = clampReputation((playerStats.reputation or 0) + (Config.Reputation.ContractBonus or 0))
+        end
+
+        if identifier then saveStats(identifier) end
+        sendMissionSnapshot(src, nil, playerStats)
+        sendDealerSnapshot(src, nil, playerStats)
+    else
+        sendMissionSnapshot(src)
+        sendDealerSnapshot(src)
+    end
+end
+
 RegisterNetEvent('outlaw_organ:startMission', function(payload)
     local src = source
     local remain = cooldownRemaining(src)
@@ -193,6 +253,7 @@ RegisterNetEvent('outlaw_organ:startMission', function(payload)
     missions[src].forcedOrgan = contractEntry and contractEntry.item or nil
     missions[src].deadline = contractEntry and (now() + (contractEntry.timeLimit or (Config.MissionBoard and Config.MissionBoard.DefaultTimeLimit) or 0)) or nil
     missions[src].bonusReputation = contractEntry and contractEntry.bonusReputation or 0
+    missions[src].readyToComplete = false
 
     local payload = {
         coords = zone,
@@ -211,6 +272,7 @@ RegisterNetEvent('outlaw_organ:startMission', function(payload)
     ), 3447003)
 
     sendMissionSnapshot(src, nil, stats)
+    sendDealerSnapshot(src, nil, stats)
 end)
 
 RegisterNetEvent('outlaw_organ:registerTarget', function(netId, coords)
@@ -347,9 +409,11 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
         missions[src].forcedOrgan = nil
         missions[src].contractId = nil
         missions[src].bonusReputation = nil
+        missions[src].readyToComplete = nil
         missions[src].given = {}
         missions[src].harvested = 0
         sendMissionSnapshot(src)
+        sendDealerSnapshot(src)
         return
     end
     if not mission or not mission.netId or mission.netId ~= netId then
@@ -450,60 +514,76 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
 
         sendWebhook('Prélèvement', ('**Joueur:** %s\n**Item:** %s\n**Qualité:** %d%%\n**TTL:** %ss\n**Coords:** (%.1f, %.1f, %.1f)'):format(GetPlayerName(src), organ, metadata.quality, metadata.ttl, pedCoords.x, pedCoords.y, pedCoords.z), 5763719)
 
+        local forced = mission.forcedOrgan ~= nil
         local done = false
-        if mission.harvested >= 1 and not mission.canSecond then
-            done = true
-        elseif mission.harvested >= 2 then
-            done = true
+        if forced then
+            local limit = 1
+            local entry = mission.contractId and getMissionEntry(mission.contractId) or nil
+            if entry and entry.turnInCount and entry.turnInCount > 0 then
+                limit = entry.turnInCount
+            elseif entry and entry.required and entry.required > 0 then
+                limit = entry.required
+            end
+            if (mission.given[organ] or 0) >= limit then
+                done = true
+            end
+        else
+            if mission.harvested >= 1 and not mission.canSecond then
+                done = true
+            elseif mission.harvested >= 2 then
+                done = true
+            end
         end
 
-        if done then
-            local completion = now()
-            TriggerClientEvent('outlaw_organ:clearTarget', src)
-            local missionStart = missions[src].startedAt or completion
-            local contractId = missions[src].contractId
-            local bonusRep = missions[src].bonusReputation or 0
-            missions[src].netId = nil
-            missions[src].startedAt = completion
-            missions[src].active = false
-            missions[src].deadline = nil
-            missions[src].forcedOrgan = nil
-            missions[src].contractId = nil
-            missions[src].bonusReputation = nil
-            missions[src].given = {}
-            missions[src].harvested = 0
-            local playerStats, identifier = getStats(src)
-            if playerStats then
-                playerStats.contractsCompleted = (playerStats.contractsCompleted or 0) + 1
-                playerStats.lastContractAt = completion
-                if contractId then
-                    playerStats.contractsByType = playerStats.contractsByType or {}
-                    local history = playerStats.contractsByType[contractId] or {}
-                    history.completed = (history.completed or 0) + 1
-                    local duration = completion - missionStart
-                    if duration < 0 then duration = 0 end
-                    if not history.bestTime or duration < history.bestTime then
-                        history.bestTime = duration
-                    end
-                    playerStats.contractsByType[contractId] = history
-                    if bonusRep and bonusRep > 0 then
-                        playerStats.reputation = clampReputation((playerStats.reputation or 0) + bonusRep)
-                    end
-                end
-                if Config.Reputation and Config.Reputation.ContractBonus then
-                    playerStats.reputation = clampReputation((playerStats.reputation or 0) + (Config.Reputation.ContractBonus or 0))
-                end
-                saveStats(identifier)
-                sendMissionSnapshot(src, nil, playerStats)
+        if forced then
+            mission.readyToComplete = done
+            if done then
+                TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Ramène l’organe au donneur pour terminer la mission.', type='inform'})
+            end
+            sendMissionSnapshot(src)
+            sendDealerSnapshot(src)
+        else
+            if done then
+                completeMission(src)
             else
                 sendMissionSnapshot(src)
             end
-        else
-            sendMissionSnapshot(src)
         end
 
         TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Récolte: %s (%d%%)'):format(organ, base), type='success'})
     end)
+end)
+
+RegisterNetEvent('outlaw_organ:completeSpecialMission', function()
+    local src = source
+    local mission = missions[src]
+    if not mission or not mission.active or not mission.contractId then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Aucune mission spéciale à terminer.', type='error'})
+    end
+
+    if mission.deadline and mission.deadline > 0 and now() > mission.deadline then
+        TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Mission échouée: délai dépassé.', type='error'})
+        mission.active = false
+        mission.netId = nil
+        mission.startedAt = now()
+        mission.deadline = nil
+        mission.forcedOrgan = nil
+        mission.contractId = nil
+        mission.bonusReputation = nil
+        mission.readyToComplete = nil
+        mission.given = {}
+        mission.harvested = 0
+        sendMissionSnapshot(src)
+        sendDealerSnapshot(src)
+        return
+    end
+
+    if not mission.readyToComplete then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Collecte l’organe requis avant de terminer la mission.', type='error'})
+    end
+
+    completeMission(src)
+    TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Mission spéciale terminée.', type='success'})
 end)
 
 local function buildDeliverySnapshot(stats)
@@ -522,6 +602,62 @@ local function buildDeliverySnapshot(stats)
         return a.price > b.price
     end)
     return deliveries
+end
+
+local function buildDealerMissionSummary(src, stats)
+    stats = stats or select(1, getStats(src))
+    if not stats then return nil end
+
+    local mission = missions[src]
+    local active
+    if mission and mission.active then
+        local entry = mission.contractId and getMissionEntry(mission.contractId) or nil
+        local itemLabel = entry and ((Config.ItemDetails[entry.item] and Config.ItemDetails[entry.item].label) or entry.item) or nil
+        local label = entry and (entry.label or entry.item) or 'Mission terrain'
+        local remaining = 0
+        if mission.deadline and mission.deadline > 0 then
+            remaining = math.max(0, mission.deadline - now())
+        end
+        active = {
+            label = label,
+            itemLabel = itemLabel,
+            type = mission.contractId and 'contract' or 'random',
+            remaining = remaining,
+            ready = mission.readyToComplete or false
+        }
+    end
+
+    local ordered = {}
+    for id, entry in pairs(getMissionContracts()) do
+        table.insert(ordered, { id = id, entry = entry })
+    end
+    table.sort(ordered, function(a, b)
+        local orderA = (a.entry and a.entry.order) or 999
+        local orderB = (b.entry and b.entry.order) or 999
+        if orderA == orderB then return a.id < b.id end
+        return orderA < orderB
+    end)
+
+    local unlockedCount, totalContracts = 0, 0
+    local nextUnlock
+    for _, item in ipairs(ordered) do
+        local entry = item.entry
+        totalContracts = totalContracts + 1
+        local unlocked, _, _, progress = evaluateMissionRequirements(stats, entry)
+        if unlocked then
+            unlockedCount = unlockedCount + 1
+        elseif not nextUnlock then
+            nextUnlock = { label = entry.label or item.id, progress = progress or 0 }
+        end
+    end
+
+    return {
+        active = active,
+        cooldown = cooldownRemaining(src),
+        unlockedCount = unlockedCount,
+        totalContracts = totalContracts,
+        nextUnlock = nextUnlock
+    }
 end
 
 local function buildDealerSnapshot(src, stats)
@@ -708,7 +844,8 @@ local function buildDealerSnapshot(src, stats)
         shop = {
             variants = variantOffers,
             kit = kitOffer
-        }
+        },
+        mission = buildDealerMissionSummary(src, stats)
     }
 end
 
@@ -874,7 +1011,8 @@ buildMissionSnapshot = function(src, stats)
             startedAt = mission.startedAt,
             deadline = mission.deadline,
             remaining = remaining,
-            type = mission.contractId and 'contract' or 'random'
+            type = mission.contractId and 'contract' or 'random',
+            ready = mission.readyToComplete or false
         }
     end
 

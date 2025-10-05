@@ -160,6 +160,16 @@ RegisterNUICallback('dealer_upgrade', function(data, cb)
     cb({})
 end)
 
+RegisterNUICallback('dealer_open_missions', function(_, cb)
+    TriggerServerEvent('outlaw_organ:requestMissionMenu')
+    cb({})
+end)
+
+RegisterNUICallback('dealer_finish_mission', function(_, cb)
+    TriggerServerEvent('outlaw_organ:completeSpecialMission')
+    cb({})
+end)
+
 RegisterNUICallback('mission_close', function(_, cb)
     closeMissionUi()
     cb({})
@@ -167,6 +177,11 @@ end)
 
 RegisterNUICallback('mission_start', function(data, cb)
     TriggerServerEvent('outlaw_organ:startMission', data or {})
+    cb({})
+end)
+
+RegisterNUICallback('mission_finish', function(_, cb)
+    TriggerServerEvent('outlaw_organ:completeSpecialMission')
     cb({})
 end)
 

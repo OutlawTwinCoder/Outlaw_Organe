@@ -127,6 +127,16 @@ if (missionAppEl) {
             quickDisabled = true;
         }
 
+        const contractActive = active && active.type === 'contract';
+        const canFinish = contractActive && Boolean(active.ready);
+        let quickButtonClass = 'primary-button';
+        let finishButton = '';
+        if (contractActive) {
+            quickButtonClass = 'secondary-button';
+            const label = canFinish ? 'Terminer mission' : 'Mission spéciale';
+            finishButton = `<button class="primary-button" id="mission-finish" type="button" ${canFinish ? '' : 'disabled'}>${label}</button>`;
+        }
+
         missionSummaryEl.innerHTML = `
             <article class="summary-card rep">
                 <div class="summary-title">Réputation</div>
@@ -144,12 +154,21 @@ if (missionAppEl) {
                 <div class="summary-title">Actions rapides</div>
                 <div class="summary-meta">Gère tes contrats depuis la planque.</div>
                 <div class="summary-actions">
-                    <button class="primary-button" id="mission-quickstart" type="button" ${quickDisabled ? 'disabled' : ''}>${quickLabel}</button>
+                    ${finishButton}
+                    <button class="${quickButtonClass}" id="mission-quickstart" type="button" ${quickDisabled ? 'disabled' : ''}>${quickLabel}</button>
                     <button class="secondary-button" data-go-mission-tab="contracts" type="button">Voir les contrats</button>
                 </div>
             </article>
         `;
 
+        const finishBtn = missionSummaryEl.querySelector('#mission-finish');
+        if (finishBtn && canFinish) {
+            finishBtn.addEventListener('click', () => {
+                if (typeof send === 'function') {
+                    send('mission_finish', {});
+                }
+            });
+        }
         const quickBtn = missionSummaryEl.querySelector('#mission-quickstart');
         if (quickBtn && !quickDisabled) {
             quickBtn.addEventListener('click', () => {
