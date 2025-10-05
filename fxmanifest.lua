@@ -4,8 +4,8 @@ game 'gta5'
 lua54 'yes'
 
 author 'OutlawTwinCoder'
-description 'Illegal organ harvest missions (NPC -> target ped -> sell organs to dealer)'
-version '1.0.0'
+description 'Illegal organ harvest missions with decay/quality, multi-harvest, heat, witnesses & dispatch + inventory tooltip/inspect + live durability bar'
+version '1.3.0'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -27,3 +27,5 @@ dependencies {
     'ox_inventory',
     'es_extended'
 }
+
+client_export 'inspectOrgan'
