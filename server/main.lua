@@ -9,9 +9,23 @@ local getMissionEntry
 local evaluateMissionRequirements
 local organUnlockedForPlayer
 local buildMissionSnapshot
-local sendMissionSnapshot
+local buildDealerSnapshot
+
+local function sendDealerSnapshot(src, action, stats)
+    if not buildDealerSnapshot then return end
+    local snapshot = buildDealerSnapshot(src, stats)
+    if not snapshot then return end
+    TriggerClientEvent(action or 'outlaw_organ:updateDealerMenu', src, snapshot)
+end
+
+local function sendMissionSnapshot(src, action, stats)
+    if not buildMissionSnapshot then return end
+    local snapshot = buildMissionSnapshot(src, stats)
+    if not snapshot then return end
+    TriggerClientEvent(action or 'outlaw_organ:updateMissionMenu', src, snapshot)
+end
+
 local completeMission
-local sendDealerSnapshot
 
 local function now() return os.time() end
 
@@ -483,75 +497,79 @@ RegisterNetEvent('outlaw_organ:harvest', function(netId, causeHash)
     local metadata = { quality = base, born = born, ttl = ttl, expires = expires }
 
     -- Add item and set initial durability to 100%, then sync loop will take care
-    exports.ox_inventory:AddItem(src, organ, 1, metadata, nil, function(success, response)
-        if not success then
-            return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Inventaire plein.', type='error'})
-        end
-        if response and response.slot then
-            -- Set initial durability according to TTL (should be 100 just after creation)
-            local dur = computeDurability(metadata, now())
-            exports.ox_inventory:SetDurability(src, response.slot, dur)
-        end
+    local addSuccess, addResponse = exports.ox_inventory:AddItem(src, organ, 1, metadata)
+    if not addSuccess then
+        return TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Inventaire plein.', type='error'})
+    end
+    local slot = nil
+    if type(addResponse) == 'table' and addResponse.slot then
+        slot = addResponse.slot
+    elseif type(addSuccess) == 'table' and addSuccess.slot then
+        slot = addSuccess.slot
+    end
+    if slot then
+        local dur = computeDurability(metadata, now())
+        exports.ox_inventory:SetDurability(src, slot, dur)
+    end
 
-        mission.harvested = (mission.harvested or 0) + 1
-        mission.given[organ] = (mission.given[organ] or 0) + 1
+    mission.harvested = (mission.harvested or 0) + 1
+    mission.given[organ] = (mission.given[organ] or 0) + 1
 
-        if Config.Heat and Config.Heat.Enable then
-            local val = updateHeat(src, Config.Heat.AddOnHarvest or 20)
-            if val >= (Config.Heat.DispatchThreshold or 50) then
-                if (mission.lastDispatchAt or 0) + (Config.Heat.DispatchCooldownSeconds or 90) <= now() then
-                    mission.lastDispatchAt = now()
-                    policeDispatch(pedCoords, 'Activité suspecte / prélèvement d’organes')
-                end
+    if Config.Heat and Config.Heat.Enable then
+        local val = updateHeat(src, Config.Heat.AddOnHarvest or 20)
+        if val >= (Config.Heat.DispatchThreshold or 50) then
+            if (mission.lastDispatchAt or 0) + (Config.Heat.DispatchCooldownSeconds or 90) <= now() then
+                mission.lastDispatchAt = now()
+                policeDispatch(pedCoords, 'Activité suspecte / prélèvement d’organes')
             end
         end
+    end
 
-        if Config.Risk and Config.Risk.InfectionChanceNoGloves and (not hasItem(src, Config.Risk.GlovesItem)) then
-            if math.random() < Config.Risk.InfectionChanceNoGloves then
-                TriggerClientEvent('outlaw_organ:applyInfection', src, Config.Risk.InfectionDuration or 600, Config.Risk.InfectionSprintMultiplier or 0.9)
-            end
+    if Config.Risk and Config.Risk.InfectionChanceNoGloves and (not hasItem(src, Config.Risk.GlovesItem)) then
+        if math.random() < Config.Risk.InfectionChanceNoGloves then
+            TriggerClientEvent('outlaw_organ:applyInfection', src, Config.Risk.InfectionDuration or 600, Config.Risk.InfectionSprintMultiplier or 0.9)
         end
+    end
 
-        sendWebhook('Prélèvement', ('**Joueur:** %s\n**Item:** %s\n**Qualité:** %d%%\n**TTL:** %ss\n**Coords:** (%.1f, %.1f, %.1f)'):format(GetPlayerName(src), organ, metadata.quality, metadata.ttl, pedCoords.x, pedCoords.y, pedCoords.z), 5763719)
+    sendWebhook('Prélèvement', ('**Joueur:** %s\n**Item:** %s\n**Qualité:** %d%%\n**TTL:** %ss\n**Coords:** (%.1f, %.1f, %.1f)'):format(GetPlayerName(src), organ, metadata.quality, metadata.ttl, pedCoords.x, pedCoords.y, pedCoords.z), 5763719)
 
-        local forced = mission.forcedOrgan ~= nil
-        local done = false
-        if forced then
-            local limit = 1
-            local entry = mission.contractId and getMissionEntry(mission.contractId) or nil
-            if entry and entry.turnInCount and entry.turnInCount > 0 then
-                limit = entry.turnInCount
-            elseif entry and entry.required and entry.required > 0 then
-                limit = entry.required
-            end
-            if (mission.given[organ] or 0) >= limit then
-                done = true
-            end
+    local forced = mission.forcedOrgan ~= nil
+    local done = false
+    if forced then
+        local limit = 1
+        local entry = mission.contractId and getMissionEntry(mission.contractId) or nil
+        if entry and entry.turnInCount and entry.turnInCount > 0 then
+            limit = entry.turnInCount
+        elseif entry and entry.required and entry.required > 0 then
+            limit = entry.required
+        end
+        if (mission.given[organ] or 0) >= limit then
+            done = true
+        end
+    else
+        if mission.harvested >= 1 and not mission.canSecond then
+            done = true
+        elseif mission.harvested >= 2 then
+            done = true
+        end
+    end
+
+    if forced then
+        mission.readyToComplete = done
+        if done then
+            TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Ramène l’organe au donneur pour terminer la mission.', type='inform'})
+        end
+        sendMissionSnapshot(src)
+        sendDealerSnapshot(src)
+    else
+        if done then
+            completeMission(src)
         else
-            if mission.harvested >= 1 and not mission.canSecond then
-                done = true
-            elseif mission.harvested >= 2 then
-                done = true
-            end
-        end
-
-        if forced then
-            mission.readyToComplete = done
-            if done then
-                TriggerClientEvent('ox_lib:notify', src, {title='Organes', description='Ramène l’organe au donneur pour terminer la mission.', type='inform'})
-            end
             sendMissionSnapshot(src)
-            sendDealerSnapshot(src)
-        else
-            if done then
-                completeMission(src)
-            else
-                sendMissionSnapshot(src)
-            end
         end
+    end
 
-        TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Récolte: %s (%d%%)'):format(organ, base), type='success'})
-    end)
+    TriggerClientEvent('ox_lib:notify', src, {title='Organes', description=('Récolte: %s (%d%%)'):format(organ, base), type='success'})
 end)
 
 RegisterNetEvent('outlaw_organ:completeSpecialMission', function()
@@ -660,7 +678,7 @@ local function buildDealerMissionSummary(src, stats)
     }
 end
 
-local function buildDealerSnapshot(src, stats)
+buildDealerSnapshot = function(src, stats)
     stats = stats or select(1, getStats(src))
     local reputation = stats and (stats.reputation or 0) or 0
     local multiplier, currentTier, nextTier = calculatePriceMultiplier(reputation)
@@ -847,12 +865,6 @@ local function buildDealerSnapshot(src, stats)
         },
         mission = buildDealerMissionSummary(src, stats)
     }
-end
-
-local function sendDealerSnapshot(src, action, stats)
-    local snapshot = buildDealerSnapshot(src, stats)
-    if not snapshot then return end
-    TriggerClientEvent(action or 'outlaw_organ:updateDealerMenu', src, snapshot)
 end
 
 local function getMissionContracts()
@@ -1042,12 +1054,6 @@ buildMissionSnapshot = function(src, stats)
         unlockedCount = unlockedCount,
         totalContracts = totalContracts
     }
-end
-
-sendMissionSnapshot = function(src, action, stats)
-    local snapshot = buildMissionSnapshot(src, stats)
-    if not snapshot then return end
-    TriggerClientEvent(action or 'outlaw_organ:updateMissionMenu', src, snapshot)
 end
 
 RegisterNetEvent('outlaw_organ:requestDealerMenu', function()
