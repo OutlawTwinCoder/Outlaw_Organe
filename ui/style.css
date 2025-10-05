@@ -241,14 +241,14 @@ body {
 .tab-content > .tab-panel {
     flex: 1;
     display: none;
-    overflow: hidden;
 }
 
 .tab-panel.active {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    overflow: hidden;
+    overflow-y: auto;
+    padding-right: 4px;
 }
 
 .panel-grid {

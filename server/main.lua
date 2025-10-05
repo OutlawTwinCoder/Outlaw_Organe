@@ -5,6 +5,12 @@ local heat = {}     -- [src] = { value=0, updatedAt=os.time() }
 local invOpen = {}  -- [src] = true/false
 local statsCache = {} -- [identifier] = stats table
 
+local getMissionEntry
+local evaluateMissionRequirements
+local organUnlockedForPlayer
+local buildMissionSnapshot
+local sendMissionSnapshot
+
 local function now() return os.time() end
 
 local function getIdentifier(src)
@@ -716,12 +722,12 @@ local function getMissionContracts()
     return (Config.MissionBoard and Config.MissionBoard.Contracts) or {}
 end
 
-local function getMissionEntry(id)
+getMissionEntry = function(id)
     local contracts = getMissionContracts()
     return contracts and contracts[id] or nil
 end
 
-local function evaluateMissionRequirements(stats, entry)
+evaluateMissionRequirements = function(stats, entry)
     local reputation = stats and (stats.reputation or 0) or 0
     local deliveries = (stats and stats.deliveries) or {}
     local requirements, reasons = {}, {}
@@ -774,7 +780,7 @@ local function evaluateMissionRequirements(stats, entry)
     return unlocked, requirements, reasons, progress
 end
 
-local function organUnlockedForPlayer(stats, organ)
+organUnlockedForPlayer = function(stats, organ)
     local details = Config.ItemDetails[organ]
     local reputation = stats and (stats.reputation or 0) or 0
     if details and details.unlockReputation and reputation < details.unlockReputation then
@@ -787,7 +793,7 @@ local function organUnlockedForPlayer(stats, organ)
     return true
 end
 
-local function buildMissionSnapshot(src, stats)
+buildMissionSnapshot = function(src, stats)
     stats = stats or select(1, getStats(src))
     if not stats then return nil end
 
@@ -900,7 +906,7 @@ local function buildMissionSnapshot(src, stats)
     }
 end
 
-local function sendMissionSnapshot(src, action, stats)
+sendMissionSnapshot = function(src, action, stats)
     local snapshot = buildMissionSnapshot(src, stats)
     if not snapshot then return end
     TriggerClientEvent(action or 'outlaw_organ:updateMissionMenu', src, snapshot)
