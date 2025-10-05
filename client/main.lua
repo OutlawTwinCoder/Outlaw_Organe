@@ -185,6 +185,11 @@ RegisterNUICallback('mission_finish', function(_, cb)
     cb({})
 end)
 
+RegisterNUICallback('mission_open_dealer', function(_, cb)
+    TriggerServerEvent('outlaw_organ:requestDealerMenu')
+    cb({})
+end)
+
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     closeDealerUi()

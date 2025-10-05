@@ -56,23 +56,33 @@
                     </div>
                     <button id="mission-close-btn" class="ghost-button" type="button" title="Fermer">✕</button>
                 </header>
-                <section id="mission-summary" class="summary-grid"></section>
-                <nav class="tab-bar">
-                    <button class="tab active" data-mission-tab="progress">Progression</button>
-                    <button class="tab" data-mission-tab="contracts">Contrats</button>
-                    <button class="tab" data-mission-tab="pool">Butin</button>
-                </nav>
-                <main class="tab-content">
-                    <section class="tab-panel active" data-mission-tab="progress">
-                        <div id="mission-progress-content" class="list-grid"></div>
-                    </section>
-                    <section class="tab-panel" data-mission-tab="contracts">
-                        <div id="mission-contracts-content" class="list-grid"></div>
-                    </section>
-                    <section class="tab-panel" data-mission-tab="pool">
-                        <div id="mission-pool-content" class="list-grid"></div>
-                    </section>
-                </main>
+                <section id="mission-overview" class="summary-grid"></section>
+                <section class="mission-sections">
+                    <article class="mission-section-card">
+                        <header class="mission-section-header">
+                            <h2>Progression</h2>
+                        </header>
+                        <div class="mission-section-body">
+                            <div id="mission-progress-content" class="list-grid"></div>
+                        </div>
+                    </article>
+                    <article class="mission-section-card">
+                        <header class="mission-section-header">
+                            <h2>Contrats ciblés</h2>
+                        </header>
+                        <div class="mission-section-body">
+                            <div id="mission-contracts-content" class="list-grid"></div>
+                        </div>
+                    </article>
+                    <article class="mission-section-card">
+                        <header class="mission-section-header">
+                            <h2>Butin aléatoire</h2>
+                        </header>
+                        <div class="mission-section-body">
+                            <div id="mission-pool-content" class="list-grid"></div>
+                        </div>
+                    </article>
+                </section>
             </div>
         </div>
     </div>

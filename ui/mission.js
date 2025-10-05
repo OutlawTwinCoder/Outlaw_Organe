@@ -1,19 +1,15 @@
 const missionAppEl = document.getElementById('mission-app');
 if (missionAppEl) {
     const missionSubtitleEl = document.getElementById('mission-subtitle');
-    const missionSummaryEl = document.getElementById('mission-summary');
+    const missionOverviewEl = document.getElementById('mission-overview');
     const missionProgressEl = document.getElementById('mission-progress-content');
     const missionContractsEl = document.getElementById('mission-contracts-content');
     const missionPoolEl = document.getElementById('mission-pool-content');
     const missionCloseBtn = document.getElementById('mission-close-btn');
-    const missionTabButtons = Array.from(missionAppEl.querySelectorAll('[data-mission-tab]'));
-    const missionTabPanels = Array.from(missionAppEl.querySelectorAll('.tab-panel'));
-
     const missionNumberFormat = new Intl.NumberFormat('fr-FR');
 
     const missionState = {
         visible: false,
-        tab: 'progress',
         data: null
     };
 
@@ -50,17 +46,6 @@ if (missionAppEl) {
         missionState.visible = false;
     }
 
-    function updateMissionTabs() {
-        missionTabButtons.forEach((btn) => {
-            const isActive = btn.dataset.missionTab === missionState.tab;
-            btn.classList.toggle('active', isActive);
-        });
-        missionTabPanels.forEach((panel) => {
-            const isActive = panel.dataset.missionTab === missionState.tab;
-            panel.classList.toggle('active', isActive);
-        });
-    }
-
     function updateMissionSubtitle() {
         const data = missionState.data;
         if (!data) {
@@ -83,7 +68,7 @@ if (missionAppEl) {
     function renderMissionSummary() {
         const data = missionState.data;
         if (!data) {
-            missionSummaryEl.innerHTML = '';
+            missionOverviewEl.innerHTML = '';
             return;
         }
 
@@ -96,72 +81,94 @@ if (missionAppEl) {
         const canStartRandom = Boolean(data.canStartRandom);
         const nextUnlock = data.nextUnlock || null;
 
-        const nextLine = nextUnlock
-            ? `Prochain contrat: ${nextUnlock.label} (${Math.round((nextUnlock.progress || 0) * 100)}%)`
-            : 'Tous les contrats sont débloqués.';
+        const totalDelivered = Number(stats.totalDelivered || 0);
+        const contractsCompleted = Number(stats.contracts || 0);
 
-        const deliveriesLine = `Livraisons totales: ${formatNumber(stats.totalDelivered || 0)}`;
-        const contractsLine = `Contrats terminés: ${formatNumber(stats.contracts || 0)}`;
-
-        let activeLine = 'Aucune mission en cours.';
-        if (active) {
-            const label = active.itemLabel ? `${active.label} • ${active.itemLabel}` : active.label;
-            if (active.remaining && active.remaining > 0) {
-                activeLine = `${label} — ${formatDuration(active.remaining)} restantes`;
-            } else {
-                activeLine = `${label}`;
-            }
-        } else if (cooldown > 0) {
-            activeLine = `Disponible après ${formatDuration(cooldown)}`;
-        }
-
-        let quickLabel = 'Mission express';
-        let quickDisabled = false;
-        if (active) {
-            quickLabel = 'Mission active';
-            quickDisabled = true;
-        } else if (cooldown > 0) {
-            quickLabel = `Cooldown (${formatDuration(cooldown)})`;
-            quickDisabled = true;
-        } else if (!canStartRandom) {
-            quickDisabled = true;
-        }
+        let statusTitle = 'Aucune mission active';
+        let statusDetails = 'Lance une mission express ou achète un contrat ciblé.';
+        let timerLine = cooldown > 0
+            ? `Disponible après ${formatDuration(cooldown)}`
+            : 'Prêt pour une nouvelle mission.';
 
         const contractActive = active && active.type === 'contract';
         const canFinish = contractActive && Boolean(active.ready);
-        let quickButtonClass = 'primary-button';
         let finishButton = '';
+
+        if (active) {
+            statusTitle = active.itemLabel ? `${active.label} • ${active.itemLabel}` : active.label;
+            statusDetails = contractActive ? 'Contrat ciblé en cours.' : 'Mission express active.';
+            if (active.remaining && active.remaining > 0) {
+                timerLine = `Temps restant: ${formatDuration(active.remaining)}`;
+            } else if (contractActive && canFinish) {
+                timerLine = 'Mission prête à être rendue.';
+            } else {
+                timerLine = 'Mission en cours.';
+            }
+        }
+
         if (contractActive) {
-            quickButtonClass = 'secondary-button';
             const label = canFinish ? 'Terminer mission' : 'Mission spéciale';
             finishButton = `<button class="primary-button" id="mission-finish" type="button" ${canFinish ? '' : 'disabled'}>${label}</button>`;
         }
 
-        missionSummaryEl.innerHTML = `
-            <article class="summary-card rep">
-                <div class="summary-title">Réputation</div>
-                <div class="summary-value">${formatNumber(rep)}<span>RP</span></div>
-                <div class="summary-meta">Contrats débloqués: ${formatNumber(unlockedCount)}/${formatNumber(totalContracts)}</div>
-                <div class="summary-meta">${nextLine}</div>
+        let progressLine = '';
+        if (totalContracts > 0) {
+            progressLine = `${formatNumber(unlockedCount)}/${formatNumber(totalContracts)} contrats débloqués`;
+        }
+        if (nextUnlock) {
+            const percent = Math.round((nextUnlock.progress || 0) * 100);
+            const unlockLabel = nextUnlock.label || 'Contrat suivant';
+            const fragment = `${unlockLabel} (${percent}%)`;
+            progressLine = progressLine ? `${progressLine} • ${fragment}` : fragment;
+        }
+
+        let quickDisabled = false;
+        let quickLabel = 'Mission express';
+        let quickClass = 'primary-button';
+        if (active) {
+            quickDisabled = true;
+            quickLabel = 'Mission active';
+            quickClass = 'secondary-button';
+        } else if (cooldown > 0) {
+            quickDisabled = true;
+            quickLabel = `Cooldown (${formatDuration(cooldown)})`;
+            quickClass = 'secondary-button';
+        } else if (!canStartRandom) {
+            quickDisabled = true;
+            quickClass = 'secondary-button';
+        }
+
+        missionOverviewEl.innerHTML = `
+            <article class="summary-card summary-card--wide">
+                <div class="summary-title">Mission actuelle</div>
+                <div class="summary-value">${statusTitle}</div>
+                <div class="summary-meta">${statusDetails}</div>
+                <div class="summary-meta">${timerLine}</div>
+                ${progressLine ? `<div class="summary-meta">${progressLine}</div>` : ''}
+                <div class="summary-actions">
+                    ${finishButton}
+                    <button class="${quickClass}" id="mission-quickstart" type="button" ${quickDisabled ? 'disabled' : ''}>${quickLabel}</button>
+                    <button class="secondary-button" data-scroll-target="mission-contracts-content" type="button">Voir les contrats</button>
+                </div>
             </article>
             <article class="summary-card">
-                <div class="summary-title">Statut</div>
-                <div class="summary-meta">${contractsLine}</div>
-                <div class="summary-meta">${deliveriesLine}</div>
-                <div class="summary-meta">${activeLine}</div>
+                <div class="summary-title">Statistiques</div>
+                <div class="summary-meta">Contrats terminés: <strong>${formatNumber(contractsCompleted)}</strong></div>
+                <div class="summary-meta">Livraisons totales: <strong>${formatNumber(totalDelivered)}</strong></div>
+                <div class="summary-meta">Réputation: <strong>${formatNumber(rep)} RP</strong></div>
             </article>
             <article class="summary-card summary-card--actions">
                 <div class="summary-title">Actions rapides</div>
-                <div class="summary-meta">Gère tes contrats depuis la planque.</div>
+                <div class="summary-meta">Optimise ta routine sans fermer le tableau.</div>
                 <div class="summary-actions">
-                    ${finishButton}
-                    <button class="${quickButtonClass}" id="mission-quickstart" type="button" ${quickDisabled ? 'disabled' : ''}>${quickLabel}</button>
-                    <button class="secondary-button" data-go-mission-tab="contracts" type="button">Voir les contrats</button>
+                    <button class="primary-button" id="mission-sell" type="button">Vendre mon stock</button>
+                    <button class="secondary-button" id="mission-open-dealer" type="button">Ouvrir le trafiquant</button>
+                    <button class="secondary-button" data-scroll-target="mission-progress-content" type="button">Voir la progression</button>
                 </div>
             </article>
         `;
 
-        const finishBtn = missionSummaryEl.querySelector('#mission-finish');
+        const finishBtn = missionOverviewEl.querySelector('#mission-finish');
         if (finishBtn && canFinish) {
             finishBtn.addEventListener('click', () => {
                 if (typeof send === 'function') {
@@ -169,7 +176,8 @@ if (missionAppEl) {
                 }
             });
         }
-        const quickBtn = missionSummaryEl.querySelector('#mission-quickstart');
+
+        const quickBtn = missionOverviewEl.querySelector('#mission-quickstart');
         if (quickBtn && !quickDisabled) {
             quickBtn.addEventListener('click', () => {
                 if (typeof send === 'function') {
@@ -177,12 +185,32 @@ if (missionAppEl) {
                 }
             });
         }
-        missionSummaryEl.querySelectorAll('[data-go-mission-tab]').forEach((btn) => {
+
+        const sellBtn = missionOverviewEl.querySelector('#mission-sell');
+        if (sellBtn) {
+            sellBtn.addEventListener('click', () => {
+                if (typeof send === 'function') {
+                    send('dealer_sell', {});
+                }
+            });
+        }
+
+        const openDealerBtn = missionOverviewEl.querySelector('#mission-open-dealer');
+        if (openDealerBtn) {
+            openDealerBtn.addEventListener('click', () => {
+                if (typeof send === 'function') {
+                    send('mission_open_dealer', {});
+                }
+            });
+        }
+
+        missionOverviewEl.querySelectorAll('[data-scroll-target]').forEach((btn) => {
             btn.addEventListener('click', (event) => {
-                const tab = event.currentTarget.getAttribute('data-go-mission-tab');
-                missionState.tab = tab;
-                updateMissionTabs();
-                renderMissionActiveTab();
+                const targetId = event.currentTarget.getAttribute('data-scroll-target');
+                if (!targetId) return;
+                const target = document.getElementById(targetId);
+                if (!target) return;
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
             });
         });
     }
@@ -379,28 +407,12 @@ if (missionAppEl) {
         locked.forEach((item) => renderItem(item, false));
     }
 
-    function renderMissionActiveTab() {
-        switch (missionState.tab) {
-            case 'progress':
-                renderMissionProgress();
-                break;
-            case 'contracts':
-                renderMissionContracts();
-                break;
-            case 'pool':
-                renderMissionPool();
-                break;
-            default:
-                renderMissionProgress();
-                break;
-        }
-    }
-
     function renderMissionAll() {
         updateMissionSubtitle();
         renderMissionSummary();
-        updateMissionTabs();
-        renderMissionActiveTab();
+        renderMissionProgress();
+        renderMissionContracts();
+        renderMissionPool();
     }
 
     missionCloseBtn.addEventListener('click', () => {
@@ -421,20 +433,10 @@ if (missionAppEl) {
         }
     });
 
-    missionTabButtons.forEach((btn) => {
-        btn.addEventListener('click', () => {
-            const tab = btn.dataset.missionTab;
-            missionState.tab = tab;
-            updateMissionTabs();
-            renderMissionActiveTab();
-        });
-    });
-
     window.addEventListener('message', (event) => {
         const { action, payload } = event.data || {};
         if (action === 'openMission') {
             missionState.data = payload || {};
-            missionState.tab = 'progress';
             renderMissionAll();
             showMissionApp();
         } else if (action === 'closeMission') {

@@ -95,7 +95,7 @@ body {
 
 .summary-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
     gap: 8px;
     padding: 0 20px 12px;
 }
@@ -115,6 +115,10 @@ body {
     background: var(--bg-card-alt);
     border: 1px solid rgba(255, 77, 90, 0.35);
     box-shadow: inset 0 0 0 1px rgba(255, 77, 90, 0.14);
+}
+
+.summary-card--wide {
+    grid-column: span 2;
 }
 
 .summary-title {
@@ -182,6 +186,54 @@ body {
 
 .summary-card--actions {
     gap: 8px;
+}
+
+.mission-sections {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-auto-rows: minmax(0, 1fr);
+    gap: 10px;
+    padding: 0 20px 18px;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.mission-section-card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.mission-section-header {
+    padding: 12px 14px 6px;
+}
+
+.mission-section-header h2 {
+    margin: 0;
+    font-size: 0.74rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.mission-section-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 0 14px 12px;
+    gap: 6px;
+    min-height: 0;
+}
+
+.mission-section-body .list-grid {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    padding-right: 6px;
 }
 
 .summary-actions {
